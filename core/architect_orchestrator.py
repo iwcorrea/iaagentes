@@ -27,23 +27,24 @@ class AutonomousArchitectOrchestrator:
         self.context = GlobalContext()
         self.refactor = RefactorEngine(self.memory)
 
+        # ─── REGISTRO DE AGENTES ───
         self.agent_registry = AgentRegistry()
         code_agent = CodeAgent(memory=self.memory)
         self.agent_registry.register(code_agent)
 
         self.crew_available = CREWAI_AVAILABLE
-        if self.crew_available:
-            try:
-                from core.crew_agents import CrewBackendAgent, CrewDirectorAgent, CrewRepairAgent, CrewQAAgent, CrewFrontendAgent
-                self.agent_registry.register(CrewBackendAgent(memory=self.memory))
-                self.agent_registry.register(CrewDirectorAgent(memory=self.memory))
-                self.agent_registry.register(CrewRepairAgent(memory=self.memory))
-                self.agent_registry.register(CrewQAAgent(memory=self.memory))
-                self.agent_registry.register(CrewFrontendAgent(memory=self.memory))
-                print("[ARCHITECT] Agentes CrewAI registrados correctamente.")
-            except Exception as e:
-                print(f"[ARCHITECT] Error registrando agentes CrewAI: {e}. Usando solo simulados.")
-                self.crew_available = False
+        # Los wrappers de crew_agents no son críticos para el flujo principal
+        try:
+            from core.crew_agents import CrewBackendAgent, CrewDirectorAgent, CrewRepairAgent, CrewQAAgent, CrewFrontendAgent
+            self.agent_registry.register(CrewBackendAgent(memory=self.memory))
+            self.agent_registry.register(CrewDirectorAgent(memory=self.memory))
+            self.agent_registry.register(CrewRepairAgent(memory=self.memory))
+            self.agent_registry.register(CrewQAAgent(memory=self.memory))
+            self.agent_registry.register(CrewFrontendAgent(memory=self.memory))
+            print("[ARCHITECT] Agentes CrewAI registrados correctamente.")
+        except Exception as e:
+            print(f"[ARCHITECT] Error registrando agentes CrewAI (no crítico): {e}")
+            # Ya no se desactiva crew_available
 
         self.improvement_queue = ImprovementQueue()
 

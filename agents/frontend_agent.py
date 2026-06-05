@@ -9,7 +9,8 @@ load_dotenv()
 llm = LLM(
     model="gratuito-fallback",
     api_key="no-necesita-key-real",
-    base_url="http://localhost:4000/v1"
+    base_url="http://localhost:4000/v1",
+    api_base="http://localhost:4000/v1"
 )
 
 frontend_agent = Agent(

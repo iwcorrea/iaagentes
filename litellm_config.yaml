@@ -6,12 +6,13 @@ model_list:
       temperature: 0.0
       max_tokens: 4096
       fallbacks:
+        - openrouter/deepseek/deepseek-v4-flash:free
         - openrouter/meta-llama/llama-3.3-70b-instruct:free
         - openrouter/google/gemma-4-31b-it:free
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
         - openrouter/moonshotai/kimi-k2.6:free
         - openrouter/openai/gpt-oss-120b:free
-      cooldown_time: 20       # espera 20s antes de reintentar un modelo fallido
+      cooldown_time: 20
       num_retries: 2
-      retry_delay: 10         # 10s entre reintentos del mismo modelo
+      retry_delay: 10
       fallbacks_when_rate_limited: true

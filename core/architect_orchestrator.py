@@ -2,6 +2,7 @@ import sys
 import traceback
 from pathlib import Path
 
+# Aseguramos que la raíz del proyecto esté en sys.path para los imports
 ROOT_DIR = Path(__file__).parent.parent.resolve()
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -161,6 +162,7 @@ class AutonomousArchitectOrchestrator:
             return error_report
 
     def _generate_demo_plan(self, prompt):
+        """Plan DEMO que genera un pequeño proyecto FastAPI como fallback."""
         demo_code = (
             'backend/main.py:::from fastapi import FastAPI\n'
             'app = FastAPI()\n\n'

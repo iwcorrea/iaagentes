@@ -38,7 +38,7 @@ def execute_plan(raw_output: str, workspace_base: Optional[Path] = None) -> str:
 
             parts = line_str.split(":::", 1)
             clean_path = parts[0].strip()
-            for prefix in ["backend/", "workspace/", "frontend/"]:
+            for prefix in ["backend/", "workspace/", "frontend/", "src/"]:
                 if clean_path.startswith(prefix):
                     clean_path = clean_path[len(prefix):]
             pending_file = clean_path
@@ -58,7 +58,7 @@ def execute_plan(raw_output: str, workspace_base: Optional[Path] = None) -> str:
                             full_path.write_text(content, encoding='utf-8')
                             files_created.append(str(full_path.relative_to(workspace_base)))
                     clean_path = file_name
-                    for prefix in ["backend/", "workspace/", "frontend/"]:
+                    for prefix in ["backend/", "workspace/", "frontend/", "src/"]:
                         if clean_path.startswith(prefix):
                             clean_path = clean_path[len(prefix):]
                     pending_file = clean_path
@@ -85,12 +85,12 @@ def execute_plan(raw_output: str, workspace_base: Optional[Path] = None) -> str:
 
 
 # =========================================================
-#  EJECUCIÓN INTELIGENTE DEL PROYECTO (sin reparación en caliente)
+#  EJECUCIÓN INTELIGENTE DEL PROYECTO
 # =========================================================
 class ProjectExecutor:
     def __init__(self, project_path: str, memory=None):
         self.project_path = Path(project_path).resolve()
-        self.memory = memory   # Se mantiene por si en el futuro se requiere
+        self.memory = memory
 
     def execute_project(self, entry_module: Optional[str] = None) -> Dict[str, Any]:
         main_file = self._find_main_file(entry_module)
@@ -105,7 +105,6 @@ class ProjectExecutor:
         is_fastapi = self._is_fastapi_app(main_file)
         execution_type = 'uvicorn' if is_fastapi else 'python'
         result = self._run(main_file, execution_type)
-        # Eliminamos el intento de auto-fix en runtime que llamaba a un método inexistente
         result['execution_type'] = execution_type
         return result
 

@@ -26,6 +26,7 @@ Rules:
 - NEVER describe code
 - ONLY output raw code
 - ALWAYS generate complete files
+- ALWAYS use the format: path:::code for each file
 """,
     llm=llm,
     tools=[],

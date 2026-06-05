@@ -1,11 +1,21 @@
-import json
+"""
+Flujo completo de CrewAI para generación de proyectos.
+Orquesta a los 5 agentes: director, backend, frontend, QA y repair.
+"""
+
 from crewai import Crew, Task
 from agents.director_agent import director_agent
 from agents.backend_agent import backend_agent
 from agents.frontend_agent import frontend_agent
 from agents.qa_agent import qa_agent
 
+
 def run_ecommerce_workflow(user_prompt):
+    """
+    Ejecuta el flujo completo de agentes CrewAI.
+    Retorna una tupla (codigo_combinado, informe_qa).
+    """
+    
     # =========================
     # DIRECTOR TASK
     # =========================
@@ -40,11 +50,11 @@ Devuelve ÚNICAMENTE las llaves del JSON, sin bloques de código ```json ni text
     )
 
     # =========================
-    # BACKEND TASK (Optimizada)
+    # BACKEND TASK
     # =========================
     backend_task = Task(
         description=f"""
-Eres un generador de código backend. Usa el plan JSON generado por el Director (lista de archivos) para escribir el código completo de cada archivo de backend.
+Eres un generador de código backend. Usa el plan JSON generado por el Director para escribir el código completo de cada archivo de backend.
 
 Entrega tu respuesta usando EXACTAMENTE este formato (sin markdown, sin explicaciones):
 
@@ -59,6 +69,7 @@ Reglas:
 - Cada bloque empieza con la ruta del archivo, seguida de ::: y luego el código en las líneas siguientes.
 - NO escribas introducciones ni conclusiones.
 - El código debe ser completo y funcional.
+- Respeta el formato ruta:::código para cada archivo.
 """,
         expected_output="Código estructurado en formato ruta:::código",
         agent=backend_agent,
@@ -73,13 +84,14 @@ Reglas:
 Eres un generador de frontend. Basándote en el plan del Director, escribe el código del frontend (React).
 
 Entrega tu respuesta usando el mismo formato:
-frontend/App.jsx:::import React, {{ useState, useEffect }} from 'react';
+frontend/App.jsx:::import React from 'react';
 ...
 
 Reglas:
 - Empieza con la ruta y :::
 - No uses bloques de markdown.
 - Asegúrate de que el código sea moderno y funcional.
+- Respeta el formato ruta:::código para cada archivo.
 """,
         expected_output="Código frontend en formato archivo:::código",
         agent=frontend_agent,
@@ -87,7 +99,7 @@ Reglas:
     )
 
     # =========================
-    # QA TASK (con acceso al código generado)
+    # QA TASK
     # =========================
     qa_task = Task(
         description="""
@@ -114,15 +126,30 @@ Genera un informe claro con:
 
     crew.kickoff()
 
-    # Extraer salidas y combinarlas
+    # Extraer salidas
     def get_output(task):
+        """Extrae el texto de salida de una tarea CrewAI."""
         out = task.output
-        return str(out.raw) if hasattr(out, 'raw') else str(out)
+        if out is None:
+            return ""
+        if hasattr(out, 'raw'):
+            return str(out.raw).strip()
+        return str(out).strip()
 
     backend_code = get_output(backend_task)
     frontend_code = get_output(frontend_task)
     qa_report = get_output(qa_task)
 
-    # Combinar ambos códigos para que execute_plan los procese
-    combined_code = backend_code.strip() + "\n" + frontend_code.strip()
+    # Combinar código backend + frontend para execute_plan
+    combined_code = ""
+    if backend_code:
+        combined_code += backend_code
+    if frontend_code:
+        if combined_code:
+            combined_code += "\n"
+        combined_code += frontend_code
+
+    if not combined_code:
+        combined_code = "backend/main.py:::print('Error: no se generó código')"
+
     return combined_code, qa_report

@@ -20,6 +20,7 @@ Especialista frontend experto en:
 - React
 - Tailwind
 - UX/UI
+- Usar formato path:::code para entregar archivos
 """,
     llm=llm,
     tools=[read_file, write_file, save_memory_tool, search_memory_tool],

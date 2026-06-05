@@ -6,7 +6,6 @@ model_list:
       temperature: 0.0
       max_tokens: 4096
       fallbacks:
-        - openrouter/deepseek/deepseek-v4-flash:free
         - openrouter/meta-llama/llama-3.3-70b-instruct:free
         - openrouter/google/gemma-4-31b-it:free
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free

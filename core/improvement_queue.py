@@ -1,43 +1,60 @@
+"""
+Cola de mejoras para el ecosistema autónomo.
+Los agentes y el MetaAgent pueden proponer mejoras que quedan
+pendientes de revisión, aprobación o rechazo.
+"""
+
 import json
-import os
 import uuid
-from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+
 
 class ImprovementQueue:
     """
-    Cola persistente de propuestas de mejora.
-    Almacena las sugerencias en un archivo JSON en workspace/.
+    Gestiona propuestas de mejora del ecosistema.
+    Las almacena en un archivo JSON para persistencia.
     """
 
     def __init__(self, storage_path: str = "workspace/improvements.json"):
-        self.storage_path = Path(storage_path)
+        self.storage_path = Path(storage_path).resolve()
         self._ensure_storage()
 
     def _ensure_storage(self):
+        """Crea el archivo de almacenamiento si no existe."""
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.storage_path.exists():
             self.storage_path.write_text(json.dumps([], indent=2))
 
-    def _load(self) -> List[Dict]:
+    def _read_all(self) -> List[Dict[str, Any]]:
+        """Lee todas las propuestas del archivo."""
         try:
             return json.loads(self.storage_path.read_text())
-        except:
+        except (json.JSONDecodeError, FileNotFoundError):
             return []
 
-    def _save(self, data: List[Dict]):
-        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        self.storage_path.write_text(json.dumps(data, indent=2))
+    def _write_all(self, proposals: List[Dict[str, Any]]):
+        """Escribe todas las propuestas al archivo."""
+        self.storage_path.write_text(json.dumps(proposals, indent=2))
 
-    def add_proposal(self, agent_name: str, title: str, description: str,
-                     target_file: str, suggested_code: str = "",
-                     reason: str = "") -> str:
-        """Añade una nueva propuesta y devuelve su ID."""
-        proposals = self._load()
-        proposal_id = str(uuid.uuid4())[:8]
+    def add_proposal(
+        self,
+        agent_name: str,
+        title: str,
+        description: str,
+        target_file: str,
+        suggested_code: str = "",
+        reason: str = ""
+    ) -> str:
+        """
+        Añade una nueva propuesta de mejora.
+        Retorna el ID de la propuesta.
+        """
+        proposal_id = uuid.uuid4().hex[:8]
         proposal = {
             "id": proposal_id,
-            "agent": agent_name,
+            "agent_name": agent_name,
             "title": title,
             "description": description,
             "target_file": target_file,
@@ -46,51 +63,58 @@ class ImprovementQueue:
             "status": "pending",
             "created_at": datetime.now().isoformat(),
             "applied_at": None,
-            "result": None
+            "result_message": None
         }
+        proposals = self._read_all()
         proposals.append(proposal)
-        self._save(proposals)
+        self._write_all(proposals)
         return proposal_id
 
-    def list_pending(self) -> List[Dict]:
-        """Devuelve propuestas pendientes de revisión."""
-        return [p for p in self._load() if p["status"] == "pending"]
-
-    def list_all(self) -> List[Dict]:
-        return self._load()
-
-    def get_proposal(self, proposal_id: str) -> Optional[Dict]:
-        for p in self._load():
-            if p["id"] == proposal_id:
-                return p
-        return None
-
-    def approve(self, proposal_id: str) -> Optional[Dict]:
-        """Aprueba una propuesta y devuelve sus datos para aplicar."""
-        proposals = self._load()
+    def approve(self, proposal_id: str) -> Optional[Dict[str, Any]]:
+        """Aprueba una propuesta (cambia su estado a 'approved')."""
+        proposals = self._read_all()
         for p in proposals:
             if p["id"] == proposal_id and p["status"] == "pending":
                 p["status"] = "approved"
-                p["applied_at"] = datetime.now().isoformat()
-                self._save(proposals)
+                self._write_all(proposals)
                 return p
         return None
 
     def reject(self, proposal_id: str) -> bool:
-        proposals = self._load()
+        """Rechaza una propuesta (cambia su estado a 'rejected')."""
+        proposals = self._read_all()
         for p in proposals:
             if p["id"] == proposal_id and p["status"] == "pending":
                 p["status"] = "rejected"
-                self._save(proposals)
+                self._write_all(proposals)
                 return True
         return False
 
-    def mark_applied(self, proposal_id: str, result: str = ""):
-        proposals = self._load()
+    def mark_applied(self, proposal_id: str, message: str = ""):
+        """Marca una propuesta como aplicada."""
+        proposals = self._read_all()
         for p in proposals:
             if p["id"] == proposal_id:
                 p["status"] = "applied"
-                p["result"] = result
-                self._save(proposals)
+                p["applied_at"] = datetime.now().isoformat()
+                p["result_message"] = message
+                self._write_all(proposals)
                 return True
         return False
+
+    def list_pending(self) -> List[Dict[str, Any]]:
+        """Lista todas las propuestas pendientes."""
+        proposals = self._read_all()
+        return [p for p in proposals if p["status"] == "pending"]
+
+    def list_all(self) -> List[Dict[str, Any]]:
+        """Lista todas las propuestas."""
+        return self._read_all()
+
+    def get_by_id(self, proposal_id: str) -> Optional[Dict[str, Any]]:
+        """Obtiene una propuesta por su ID."""
+        proposals = self._read_all()
+        for p in proposals:
+            if p["id"] == proposal_id:
+                return p
+        return None

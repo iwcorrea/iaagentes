@@ -10,7 +10,8 @@ llm = LLM(
     model="gratuito-fallback",
     api_key="no-necesita-key-real",
     base_url="http://localhost:4000/v1",
-    api_base="http://localhost:4000/v1"  # ← necesario para CrewAI
+    api_base="http://localhost:4000/v1",
+    stop=[]   # 🔥 evita enviar "\nObservation:" u otros stops que el proxy rechace
 )
 
 director_agent = Agent(

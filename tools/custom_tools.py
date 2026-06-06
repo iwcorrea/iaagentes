@@ -1,4 +1,3 @@
-import os
 from crewai.tools import tool
 
 @tool("Read File")
@@ -7,28 +6,30 @@ def read_file(path: str) -> str:
     Lee el contenido de un archivo específico del proyecto.
     """
     try:
-        if not os.path.exists(path):
-            return f"Error: El archivo '{path}' no existe."
-        with open(path, "r", encoding="utf-8") as file:
-            return file.read()
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return f"Error: El archivo '{path}' no existe."
     except Exception as e:
-        return f"ERROR leyendo archivo: {str(e)}"
+        return f"Error al leer '{path}': {str(e)}"
 
 @tool("Write File")
-def write_file(data: str) -> str:
+def write_file(args: str) -> str:
     """
-    Escribe archivos reales. El parámetro 'data' debe tener el formato 'ruta:::contenido'.
+    Escribe contenido en un archivo. Formato: 'ruta:::contenido'.
     """
     try:
-        if ":::" not in data:
-            return "Error: Formato incorrecto. Usa 'ruta:::contenido'."
-        file_path, content = data.split(":::", 1)
-        os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        return f"Archivo guardado correctamente en '{file_path}'"
+        if ":::" in args:
+            path, content = args.split(":::", 1)
+        else:
+            parts = args.split(" ", 1)
+            path = parts[0]
+            content = parts[1] if len(parts) > 1 else ""
+        with open(path.strip(), 'w', encoding='utf-8') as f:
+            f.write(content.strip())
+        return f"Archivo guardado correctamente en '{path.strip()}'"
     except Exception as e:
-        return f"Error escribiendo archivo: {str(e)}"
+        return f"Error al escribir archivo: {str(e)}"
 
 @tool("Run Terminal")
 def run_terminal(command: str) -> str:
@@ -37,13 +38,10 @@ def run_terminal(command: str) -> str:
     """
     import subprocess
     try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        return result.stdout + result.stderr
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        output = result.stdout + result.stderr
+        return output if output else "Comando ejecutado sin salida."
+    except subprocess.TimeoutExpired:
+        return "Error: El comando excedió el tiempo de espera (30s)."
     except Exception as e:
-        return f"Error ejecutando comando: {str(e)}"
+        return f"Error al ejecutar comando: {str(e)}"

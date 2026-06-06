@@ -8,7 +8,8 @@ llm = LLM(
     model="gratuito-fallback",
     api_key="no-necesita-key-real",
     base_url="http://localhost:4000/v1",
-    api_base="http://localhost:4000/v1"
+    api_base="http://localhost:4000/v1",
+    stop=[]
 )
 
 repair_agent = Agent(

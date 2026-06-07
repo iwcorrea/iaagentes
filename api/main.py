@@ -1,5 +1,5 @@
 import asyncio
-asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())  # Elimina warning en Windows
+asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -80,7 +80,7 @@ def chat_completions(request: ChatRequest, project_id: Optional[str] = Query(Non
         final_project_id = project_path.name
 
         if intent == "create_file":
-            final_text = generate_file(user_prompt, project_path=project_path)  # ← CORREGIDO
+            final_text = generate_file(user_prompt, project_path=project_path)
         elif intent == "terminal":
             final_text = "Terminal execution not implemented yet."
         else:
@@ -125,7 +125,7 @@ def chat_completions(request: ChatRequest, project_id: Optional[str] = Query(Non
             ]
         }
 
-# Graph export (sin cambios)
+# Graph export
 @app.get("/graph/export")
 def export_graph(format: str = Query("dot"), project_id: Optional[str] = Query(None)):
     if project_id is None:
@@ -162,7 +162,7 @@ def export_graph(format: str = Query("dot"), project_id: Optional[str] = Query(N
     else:
         raise HTTPException(status_code=400, detail="Formato no soportado. Usa 'dot' o 'png'.")
 
-# Auto-mejora (sin cambios)
+# Auto-mejora
 @app.post("/system/propose-improvement")
 def propose_improvement(proposal: ImprovementProposal):
     proposal_id = improvement_queue.add_proposal(
@@ -219,10 +219,12 @@ def run_meta_agent(project_id: Optional[str] = Query(None)):
             raise HTTPException(status_code=404, detail="No hay proyectos")
         if project_id is None:
             project_id = projects[-1]
-        project_path = project_manager.base / project_id / "backend"
-        if not project_path.exists():
-            raise HTTPException(status_code=404, detail=f"Proyecto {project_id} sin backend")
-        memory = ArchitectureMemory(root_path=str(project_path))
+        project_path = project_manager.base / project_id
+        # Si existe backend lo usamos, si no usamos la raíz
+        backend_path = project_path / "backend"
+        if not backend_path.exists():
+            backend_path = project_path  # fallback a la raíz del proyecto
+        memory = ArchitectureMemory(root_path=str(backend_path))
         memory.scan_project()
         meta = MetaAgent(memory=memory, queue=improvement_queue)
         proposal_ids = meta.analyze_and_propose(project_root=".")

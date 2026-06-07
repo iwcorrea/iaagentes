@@ -19,7 +19,7 @@ def execute_plan(raw_output: str, workspace_base: Optional[Path] = None) -> str:
     pending_code = []
 
     # Patrón para detectar inicio de archivo (nombre con extensión reconocida)
-    file_pattern = re.compile(r'^([\w\-./\\]+\.(?:py|jsx?|tsx?|css|html|yaml|json|txt))\s*(.*)')
+    file_pattern = re.compile(r'^([\w\-./\\]+\.(?:py|jsx?|tsx?|css|html|yaml|json|txt|md))\s*(.*)')
 
     for line in lines:
         line_str = line.strip()
@@ -38,7 +38,8 @@ def execute_plan(raw_output: str, workspace_base: Optional[Path] = None) -> str:
 
             parts = line_str.split(":::", 1)
             clean_path = parts[0].strip()
-            for prefix in ["backend/", "workspace/", "frontend/", "src/"]:
+            # Solo eliminamos el prefijo 'workspace/' si existe
+            for prefix in ["workspace/"]:
                 if clean_path.startswith(prefix):
                     clean_path = clean_path[len(prefix):]
             pending_file = clean_path
@@ -58,7 +59,8 @@ def execute_plan(raw_output: str, workspace_base: Optional[Path] = None) -> str:
                             full_path.write_text(content, encoding='utf-8')
                             files_created.append(str(full_path.relative_to(workspace_base)))
                     clean_path = file_name
-                    for prefix in ["backend/", "workspace/", "frontend/", "src/"]:
+                    # Solo eliminamos el prefijo 'workspace/' si existe
+                    for prefix in ["workspace/"]:
                         if clean_path.startswith(prefix):
                             clean_path = clean_path[len(prefix):]
                     pending_file = clean_path

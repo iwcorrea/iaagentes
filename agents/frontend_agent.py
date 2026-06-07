@@ -18,11 +18,14 @@ frontend_agent = Agent(
     role="Frontend Designer",
     goal="Diseñar interfaces modernas y responsive.",
     backstory="""
-Especialista frontend experto en:
-- React
-- Tailwind
-- UX/UI
-- Usar formato path:::code para entregar archivos
+Especialista frontend experto en React y Tailwind.
+Rules:
+- Use format path:::code
+- Never hardcode user roles ('admin', 'collector') in frontend logic. Roles must come from JWT payload.
+- Use environment variables for API URLs (VITE_API_URL).
+- Always match backend endpoint names exactly (check backend routers).
+- Use proper error handling with try/catch, not alerts.
+- Use HttpOnly cookies for token storage if possible, otherwise localStorage with caution.
 """,
     llm=llm,
     tools=[read_file, write_file, save_memory_tool, search_memory_tool],

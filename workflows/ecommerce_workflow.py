@@ -1,7 +1,7 @@
 """
 Flujo completo de CrewAI para generación de proyectos.
 Orquesta a los 5 agentes: director, backend, frontend, QA y repair.
-Fuerza la generación de archivos obligatorios para producción.
+Soporta creación desde cero y modificación con contexto.
 """
 
 from crewai import Crew, Task
@@ -11,17 +11,40 @@ from agents.frontend_agent import frontend_agent
 from agents.qa_agent import qa_agent
 
 
-def run_ecommerce_workflow(user_prompt):
+def run_ecommerce_workflow(user_prompt, project_context=""):
     """
     Ejecuta el flujo completo de agentes CrewAI.
     Retorna una tupla (codigo_combinado, informe_qa).
+    Si project_context tiene contenido, es una modificación.
     """
+
+    is_modification = bool(project_context and project_context.strip())
 
     # =========================
     # DIRECTOR TASK
     # =========================
-    director_task = Task(
-        description=f"""
+    if is_modification:
+        director_description = f"""
+Eres un arquitecto de software. El siguiente proyecto YA EXISTE y necesita ser MODIFICADO.
+CONTEXTO DEL PROYECTO ACTUAL:
+{project_context}
+
+PETICIÓN DE MODIFICACIÓN:
+"{user_prompt}"
+
+Genera un PLAN JSON con SOLO los archivos que deben MODIFICARSE o CREARSE.
+No incluyas archivos que no necesiten cambios.
+Formato obligatorio:
+{{
+  "files": [
+    "backend/main.py",
+    "backend/models/product.py"
+  ]
+}}
+Devuelve ÚNICAMENTE las llaves del JSON, sin bloques de código ```json ni texto adicional.
+"""
+    else:
+        director_description = f"""
 Eres un arquitecto de software. Para el siguiente requerimiento:
 "{user_prompt}"
 
@@ -31,10 +54,10 @@ Incluye OBLIGATORIAMENTE:
 - backend/database.py
 - backend/models.py
 - backend/schemas.py
-- backend/auth.py (con SECRET_KEY de variables de entorno)
+- backend/auth.py
 - backend/routers/__init__.py
 - backend/routers/auth.py
-- backend/routers/payments.py (o similar)
+- backend/routers/payments.py
 - backend/requirements.txt
 - frontend/package.json
 - frontend/src/App.jsx
@@ -45,59 +68,56 @@ Formato obligatorio:
 {{
   "files": [
     "backend/main.py",
-    "backend/database.py",
-    "backend/models.py",
-    "backend/schemas.py",
-    "backend/auth.py",
-    "backend/routers/__init__.py",
-    "backend/routers/auth.py",
-    "backend/routers/payments.py",
-    "backend/requirements.txt",
-    "frontend/package.json",
-    "frontend/src/App.jsx",
-    "frontend/src/index.jsx",
-    "manual.txt"
+    "backend/database.py"
   ]
 }}
 Devuelve ÚNICAMENTE las llaves del JSON, sin bloques de código ```json ni texto adicional.
-""",
-        expected_output="JSON puro con la lista de archivos obligatorios",
+"""
+
+    director_task = Task(
+        description=director_description,
+        expected_output="JSON puro con la lista de archivos",
         agent=director_agent
     )
 
     # =========================
-    # BACKEND TASK (con reglas estrictas)
+    # BACKEND TASK
     # =========================
-    backend_task = Task(
-        description=f"""
+    if is_modification:
+        backend_description = f"""
+Eres un generador de código backend. MODIFICA el proyecto existente según el plan del Director.
+CONTEXTO DEL PROYECTO:
+{project_context}
+
+Entrega tu respuesta usando EXACTAMENTE este formato (sin markdown, sin explicaciones):
+backend/main.py:::código completo del archivo modificado
+
+Reglas:
+- Solo genera código para los archivos que necesitan cambios.
+- El código debe ser el archivo COMPLETO (no solo la parte modificada).
+- Usa variables de entorno para SECRET_KEY, DATABASE_URL.
+- Respeta ESTRICTAMENTE el formato ruta:::código.
+"""
+    else:
+        backend_description = f"""
 Eres un generador de código backend. Usa el plan JSON del Director para escribir el código completo de CADA archivo listado.
 
 Entrega tu respuesta usando EXACTAMENTE este formato (sin markdown, sin explicaciones):
-
 backend/main.py:::from fastapi import FastAPI
 app = FastAPI()
 ...
 
-backend/database.py:::from sqlalchemy import create_engine
-...
-
-backend/requirements.txt:::fastapi
-uvicorn
-sqlalchemy
-python-jose[cryptography]
-passlib[bcrypt]
-python-multipart
-python-dotenv
-
 Reglas de producción obligatorias:
-- Usa variables de entorno para SECRET_KEY, DATABASE_URL (nunca hardcodees secretos).
+- Usa variables de entorno para SECRET_KEY, DATABASE_URL.
 - Las rutas de autenticación deben ser /auth/register, /auth/token, /auth/me.
-- Implementa roles (admin, cobrador) y protege los endpoints con dependencias.
 - Genera requirements.txt con todas las dependencias necesarias.
 - El código debe ser completo, funcional y listo para ejecutar con uvicorn.
 - NO uses bloques de markdown.
 - Respeta ESTRICTAMENTE el formato ruta:::código para cada archivo.
-""",
+"""
+
+    backend_task = Task(
+        description=backend_description,
         expected_output="Código estructurado en formato ruta:::código",
         agent=backend_agent,
         context=[director_task]
@@ -106,9 +126,8 @@ Reglas de producción obligatorias:
     # =========================
     # FRONTEND TASK
     # =========================
-    frontend_task = Task(
-        description=f"""
-Eres un generador de frontend. Basándote en el plan del Director, escribe el código de TODOS los archivos del frontend.
+    frontend_description = f"""
+Eres un generador de frontend. Basándote en el plan del Director, escribe el código del frontend (React).
 
 Entrega tu respuesta usando el mismo formato:
 frontend/package.json:::{{...}}
@@ -117,12 +136,14 @@ frontend/src/App.jsx:::import React from 'react';
 
 Reglas obligatorias:
 - Siempre genera frontend/package.json con react, react-dom, react-router-dom, axios, tailwindcss, vite.
-- Nunca hardcodees roles ('admin', 'collector') en el frontend. Los roles deben venir del JWT.
+- Nunca hardcodees roles en el frontend. Los roles deben venir del JWT.
 - Usa variables de entorno (VITE_API_URL) para la URL del backend.
 - Implementa manejo de errores con try/catch, NO uses alert().
-- Usa localStorage solo para el token, con cuidado de XSS.
 - Respeta ESTRICTAMENTE el formato ruta:::código para cada archivo.
-""",
+"""
+
+    frontend_task = Task(
+        description=frontend_description,
         expected_output="Código frontend en formato archivo:::código",
         agent=frontend_agent,
         context=[director_task]
@@ -132,14 +153,7 @@ Reglas obligatorias:
     # QA TASK
     # =========================
     qa_task = Task(
-        description="""
-Revisa el código generado (backend y frontend) que se te ha pasado en el contexto.
-Detecta errores, vulnerabilidades, malas prácticas y problemas de arquitectura.
-Genera un informe claro con:
-- Problema
-- Impacto
-- Solución propuesta
-""",
+        description="Revisa el código generado (backend y frontend) que se te ha pasado en el contexto. Detecta errores, vulnerabilidades, malas prácticas y problemas de arquitectura. Genera un informe claro con: Problema, Impacto, Solución propuesta.",
         expected_output="Informe de auditoría técnica",
         agent=qa_agent,
         context=[backend_task, frontend_task]
@@ -156,9 +170,7 @@ Genera un informe claro con:
 
     crew.kickoff()
 
-    # Extraer salidas
     def get_output(task):
-        """Extrae el texto de salida de una tarea CrewAI."""
         out = task.output
         if out is None:
             return ""
@@ -170,7 +182,6 @@ Genera un informe claro con:
     frontend_code = get_output(frontend_task)
     qa_report = get_output(qa_task)
 
-    # Combinar código backend + frontend para execute_plan
     combined_code = ""
     if backend_code:
         combined_code += backend_code

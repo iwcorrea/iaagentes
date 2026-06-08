@@ -1,6 +1,7 @@
 import sys
 import traceback
 from pathlib import Path
+import json
 
 ROOT_DIR = Path(__file__).parent.parent.resolve()
 if str(ROOT_DIR) not in sys.path:
@@ -34,15 +35,20 @@ class AutonomousArchitectOrchestrator:
         self.crew_available = CREWAI_AVAILABLE
         self.improvement_queue = ImprovementQueue()
 
-    def orchestrate_project(self, user_prompt: str) -> str:
+    def orchestrate_project(self, user_prompt: str, is_modification: bool = False) -> str:
         crew_code = ""
         qa_report = ""
 
+        # Si es modificación, cargar contexto del proyecto
+        project_context = ""
+        if is_modification:
+            project_context = self._load_project_context()
+
         # ─── FASE 1: GENERACIÓN CON TODO EL CREW ───
         if self.crew_available:
-            print("[ARCHITECT] Fase 1: Usando el flujo completo de agentes CrewAI.")
+            print(f"[ARCHITECT] Fase 1: Usando el flujo completo de agentes CrewAI. (Modo: {'modificación' if is_modification else 'creación'})")
             try:
-                crew_code, qa_report = run_ecommerce_workflow(user_prompt)
+                crew_code, qa_report = run_ecommerce_workflow(user_prompt, project_context)
                 if not crew_code or crew_code.isspace():
                     raise ValueError("El flujo CrewAI no generó código.")
                 print("[ARCHITECT] Generación de código completada.")
@@ -55,10 +61,13 @@ class AutonomousArchitectOrchestrator:
             crew_code = self._generate_demo_plan(user_prompt)
             qa_report = "CrewAI desactivado."
 
-        # ─── FASE 2: ESCRITURA INICIAL DE ARCHIVOS ───
+        # ─── FASE 2: ESCRITURA DE ARCHIVOS ───
         execution_summary = execute_plan(crew_code, workspace_base=Path(self.workspace_path))
 
-        # ─── FASE 3: REPARACIÓN AUTOMÁTICA ITERATIVA (hasta 2 rondas extra) ───
+        # Guardar contexto del proyecto para futuras modificaciones
+        self._save_project_context()
+
+        # ─── FASE 3: REPARACIÓN AUTOMÁTICA ITERATIVA ───
         if qa_report and "No se ejecutó QA" not in qa_report and self.crew_available:
             for iteration in range(2):
                 print(f"[ARCHITECT] Fase 3 (iteración {iteration+1}): Reparando código basado en QA...")
@@ -87,10 +96,7 @@ CÓDIGO ORIGINAL:
                             execute_plan(repaired_text, workspace_base=Path(self.workspace_path))
                             crew_code = repaired_text
 
-                            # Volver a ejecutar QA sobre el código reparado para ver si mejoró
                             try:
-                                from workflows.ecommerce_workflow import run_ecommerce_workflow
-                                # Solo queremos el QA del nuevo código, no regenerar todo
                                 qa_response = repair_agent.kickoff(
                                     f"Revisa el siguiente código y genera un informe de auditoría:\n\n{repaired_text}"
                                 )
@@ -103,14 +109,9 @@ CÓDIGO ORIGINAL:
                             except Exception as qa_err:
                                 print(f"[ARCHITECT] Error al re-ejecutar QA (no crítico): {qa_err}")
 
-                            # Si el informe ya no contiene problemas graves, salir del bucle
                             if "error" not in qa_report.lower() and "vulnerabilidad" not in qa_report.lower():
                                 print("[ARCHITECT] QA limpio. Reparación iterativa completada.")
                                 break
-                        else:
-                            print("[ARCHITECT] La respuesta del Repair Agent está vacía.")
-                    else:
-                        print("[ARCHITECT] El Repair Agent no devolvió código válido.")
                 except Exception as e:
                     print(f"[ARCHITECT] Error en reparación iterativa (no crítico): {e}")
 
@@ -189,8 +190,42 @@ CÓDIGO ORIGINAL:
             error_report += traceback.format_exc()
             return error_report
 
+    def _load_project_context(self) -> str:
+        """Carga el contexto del proyecto existente para pasárselo al Director."""
+        context_path = Path(self.workspace_path) / "project_context.json"
+        if context_path.exists():
+            try:
+                data = json.loads(context_path.read_text(encoding='utf-8'))
+                return json.dumps(data, indent=2)
+            except:
+                pass
+        # Fallback: listar archivos existentes
+        files = []
+        for f in Path(self.workspace_path).rglob("*"):
+            if f.is_file() and f.name != "project_context.json" and f.name != "chat.json":
+                files.append(str(f.relative_to(self.workspace_path)))
+        return "Archivos existentes:\n" + "\n".join(files)
+
+    def _save_project_context(self):
+        """Guarda un resumen del proyecto para futuras modificaciones."""
+        context_path = Path(self.workspace_path) / "project_context.json"
+        try:
+            files = {}
+            for f in Path(self.workspace_path).rglob("*"):
+                if f.is_file() and f.name not in ["project_context.json", "chat.json"]:
+                    rel = str(f.relative_to(self.workspace_path))
+                    try:
+                        files[rel] = f.read_text(encoding='utf-8')[:500]
+                    except:
+                        files[rel] = "[binario]"
+            context_path.write_text(json.dumps({
+                "files": list(files.keys()),
+                "structure": {str(k): v for k, v in files.items()}
+            }, indent=2), encoding='utf-8')
+        except Exception as e:
+            print(f"[ARCHITECT] Error guardando contexto: {e}")
+
     def _generate_demo_plan(self, prompt):
-        """Plan DEMO que genera un pequeño proyecto FastAPI como fallback."""
         demo_code = (
             'backend/main.py:::from fastapi import FastAPI\n'
             'app = FastAPI()\n\n'

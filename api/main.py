@@ -1,7 +1,7 @@
 import asyncio
 asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from fastapi import FastAPI, Query, HTTPException, Request
+from fastapi import FastAPI, Query, HTTPException, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -9,6 +9,7 @@ from pydantic import BaseModel
 import tempfile
 import os
 import subprocess
+import json as json_module
 from typing import Optional
 from pathlib import Path
 
@@ -55,7 +56,7 @@ class ImprovementProposal(BaseModel):
 # ─── DASHBOARD CENTRALIZADO ───
 @app.get("/dashboard")
 def dashboard():
-    return FileResponse("frontend/dashboard.html")
+    return FileResponse("frontend/dashboard.html", media_type="text/html")
 
 @app.get("/")
 def root():
@@ -81,8 +82,19 @@ def chat_completions(request: ChatRequest, project_id: Optional[str] = Query(Non
         user_prompt = request.messages[-1].content
         intent = detect_intent(user_prompt)
 
-        project_path = project_manager.create_project(project_id)
-        final_project_id = project_path.name
+        is_modification = False
+        if project_id:
+            existing = project_manager.get_project_path(project_id)
+            if existing:
+                project_path = existing
+                is_modification = True
+                final_project_id = project_id
+            else:
+                project_path = project_manager.create_project(project_id)
+                final_project_id = project_path.name
+        else:
+            project_path = project_manager.create_project(project_id)
+            final_project_id = project_path.name
 
         if intent == "create_file":
             final_text = generate_file(user_prompt, project_path=project_path)
@@ -90,7 +102,7 @@ def chat_completions(request: ChatRequest, project_id: Optional[str] = Query(Non
             final_text = "Terminal execution not implemented yet."
         else:
             orchestrator = AutonomousArchitectOrchestrator(workspace_path=str(project_path))
-            final_text = orchestrator.orchestrate_project(user_prompt)
+            final_text = orchestrator.orchestrate_project(user_prompt, is_modification=is_modification)
 
         final_text += f"\n\n🔹 Proyecto ID: {final_project_id}"
 
@@ -189,7 +201,6 @@ def list_improvements(status: str = Query("pending")):
     else:
         proposals = [p for p in improvement_queue.list_all() if p["status"] == status]
     
-    # Filtrar propuestas cuyo archivo objetivo aún existe
     filtered = []
     for p in proposals:
         target_path = Path(p["target_file"])
@@ -291,6 +302,55 @@ def get_project_file(project_id: str, path: str = Query(...)):
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
     return {"filename": path, "content": file_path.read_text(encoding='utf-8')}
+
+@app.put("/projects/{project_id}/file")
+def update_project_file(project_id: str, path: str = Query(...), content: str = Body(..., embed=True)):
+    project_path = project_manager.get_project_path(project_id)
+    if not project_path:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    file_path = project_path / path
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    file_path.write_text(content, encoding='utf-8')
+    return {"status": "ok", "message": "Archivo actualizado"}
+
+# ─── EJECUCIÓN DE PROYECTO ───
+@app.post("/projects/{project_id}/execute")
+def execute_project_endpoint(project_id: str):
+    project_path = project_manager.get_project_path(project_id)
+    if not project_path:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    
+    from core.executor import ProjectExecutor
+    executor = ProjectExecutor(str(project_path))
+    result = executor.execute_project()
+    return {
+        "success": result.get("success", False),
+        "stdout": result.get("stdout", ""),
+        "stderr": result.get("stderr", ""),
+        "execution_type": result.get("execution_type", "desconocido")
+    }
+
+# ─── CHAT POR PROYECTO ───
+@app.get("/projects/{project_id}/chat")
+def get_project_chat(project_id: str):
+    project_path = project_manager.get_project_path(project_id)
+    if not project_path:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    chat_path = project_path / "chat.json"
+    if chat_path.exists():
+        return json_module.loads(chat_path.read_text(encoding='utf-8'))
+    return {"messages": []}
+
+@app.post("/projects/{project_id}/chat")
+async def save_project_chat(project_id: str, request: Request):
+    project_path = project_manager.get_project_path(project_id)
+    if not project_path:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    chat_path = project_path / "chat.json"
+    body = await request.json()
+    chat_path.write_text(json_module.dumps(body, indent=2), encoding='utf-8')
+    return {"status": "ok"}
 
 # Limpieza de mejoras huérfanas
 @app.post("/system/cleanup-improvements")

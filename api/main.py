@@ -52,6 +52,11 @@ class ImprovementProposal(BaseModel):
     suggested_code: Optional[str] = ""
     reason: Optional[str] = ""
 
+# ─── DASHBOARD CENTRALIZADO ───
+@app.get("/dashboard")
+def dashboard():
+    return FileResponse("frontend/dashboard.html")
+
 @app.get("/")
 def root():
     return {"status": "ok"}
@@ -220,10 +225,9 @@ def run_meta_agent(project_id: Optional[str] = Query(None)):
         if project_id is None:
             project_id = projects[-1]
         project_path = project_manager.base / project_id
-        # Si existe backend lo usamos, si no usamos la raíz
         backend_path = project_path / "backend"
         if not backend_path.exists():
-            backend_path = project_path  # fallback a la raíz del proyecto
+            backend_path = project_path
         memory = ArchitectureMemory(root_path=str(backend_path))
         memory.scan_project()
         meta = MetaAgent(memory=memory, queue=improvement_queue)
@@ -259,7 +263,29 @@ def get_quality_metrics(project_id: Optional[str] = Query(None)):
 def list_projects():
     return {"projects": project_manager.list_projects()}
 
-# Panel de supervisión
+# ─── EXPLORADOR DE ARCHIVOS DE PROYECTO ───
+@app.get("/projects/{project_id}/files")
+def list_project_files(project_id: str):
+    project_path = project_manager.get_project_path(project_id)
+    if not project_path:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    files = []
+    for f in project_path.rglob("*"):
+        if f.is_file():
+            files.append(str(f.relative_to(project_path)))
+    return {"project_id": project_id, "files": sorted(files)}
+
+@app.get("/projects/{project_id}/file")
+def get_project_file(project_id: str, path: str = Query(...)):
+    project_path = project_manager.get_project_path(project_id)
+    if not project_path:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    file_path = project_path / path
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    return {"filename": path, "content": file_path.read_text(encoding='utf-8')}
+
+# Panel de supervisión (respaldo)
 @app.get("/improvements")
 def improvements_panel():
     return FileResponse("frontend/improvements.html")

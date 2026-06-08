@@ -188,7 +188,14 @@ def list_improvements(status: str = Query("pending")):
         proposals = improvement_queue.list_pending()
     else:
         proposals = [p for p in improvement_queue.list_all() if p["status"] == status]
-    return {"proposals": proposals, "count": len(proposals)}
+    
+    # Filtrar propuestas cuyo archivo objetivo aún existe
+    filtered = []
+    for p in proposals:
+        target_path = Path(p["target_file"])
+        if target_path.exists():
+            filtered.append(p)
+    return {"proposals": filtered, "count": len(filtered)}
 
 @app.post("/system/apply-improvement/{proposal_id}")
 def apply_improvement(proposal_id: str, test_command: Optional[str] = None):
@@ -284,6 +291,18 @@ def get_project_file(project_id: str, path: str = Query(...)):
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
     return {"filename": path, "content": file_path.read_text(encoding='utf-8')}
+
+# Limpieza de mejoras huérfanas
+@app.post("/system/cleanup-improvements")
+def cleanup_improvements():
+    proposals = improvement_queue.list_all()
+    removed = 0
+    for p in proposals:
+        target_path = Path(p["target_file"])
+        if not target_path.exists():
+            improvement_queue.reject(p["id"])
+            removed += 1
+    return {"removed": removed}
 
 # Panel de supervisión (respaldo)
 @app.get("/improvements")

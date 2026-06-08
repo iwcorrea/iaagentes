@@ -1,17 +1,19 @@
 model_list:
   - model_name: gratuito-fallback
     litellm_params:
-      model: openrouter/qwen/qwen3-coder:free
+      model: openrouter/deepseek/deepseek-v4-flash:free
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.0
       max_tokens: 4096
       fallbacks:
+        - openrouter/meta-llama/llama-4-maverick:free
+        - openrouter/qwen/qwen3-coder:free
         - openrouter/meta-llama/llama-3.3-70b-instruct:free
         - openrouter/google/gemma-4-31b-it:free
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
         - openrouter/moonshotai/kimi-k2.6:free
         - openrouter/openai/gpt-oss-120b:free
-      cooldown_time: 20
-      num_retries: 2
-      retry_delay: 10
+      cooldown_time: 30
+      num_retries: 3
+      retry_delay: 12
       fallbacks_when_rate_limited: true

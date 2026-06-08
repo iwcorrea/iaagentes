@@ -2,7 +2,6 @@ import sys
 import traceback
 from pathlib import Path
 
-# Aseguramos que la raíz del proyecto esté en sys.path para los imports
 ROOT_DIR = Path(__file__).parent.parent.resolve()
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -28,7 +27,6 @@ class AutonomousArchitectOrchestrator:
         self.context = GlobalContext()
         self.refactor = RefactorEngine(self.memory)
 
-        # ─── REGISTRO DE AGENTES (simplificado) ───
         self.agent_registry = AgentRegistry()
         code_agent = CodeAgent(memory=self.memory)
         self.agent_registry.register(code_agent)
@@ -39,7 +37,7 @@ class AutonomousArchitectOrchestrator:
     def orchestrate_project(self, user_prompt: str) -> str:
         crew_code = ""
         qa_report = ""
-        
+
         # ─── FASE 1: GENERACIÓN CON TODO EL CREW ───
         if self.crew_available:
             print("[ARCHITECT] Fase 1: Usando el flujo completo de agentes CrewAI.")
@@ -60,12 +58,13 @@ class AutonomousArchitectOrchestrator:
         # ─── FASE 2: ESCRITURA INICIAL DE ARCHIVOS ───
         execution_summary = execute_plan(crew_code, workspace_base=Path(self.workspace_path))
 
-        # ─── FASE 3: REPARACIÓN AUTOMÁTICA (QA → Repair) ───
+        # ─── FASE 3: REPARACIÓN AUTOMÁTICA ITERATIVA (hasta 2 rondas extra) ───
         if qa_report and "No se ejecutó QA" not in qa_report and self.crew_available:
-            print("[ARCHITECT] Fase 3: Reparando código basado en informe de QA...")
-            try:
-                repair_prompt = f"""
-CORRIGE el siguiente código según el informe de auditoría. 
+            for iteration in range(2):
+                print(f"[ARCHITECT] Fase 3 (iteración {iteration+1}): Reparando código basado en QA...")
+                try:
+                    repair_prompt = f"""
+CORRIGE el siguiente código según el informe de auditoría.
 Devuelve el código corregido usando EXACTAMENTE el mismo formato (ruta:::código para cada archivo).
 No añadas explicaciones, solo el código corregido.
 
@@ -75,22 +74,45 @@ INFORME DE AUDITORÍA:
 CÓDIGO ORIGINAL:
 {crew_code}
 """
-                repaired_code = repair_agent.kickoff(repair_prompt)
-                
-                if repaired_code and not str(repaired_code).isspace():
-                    # Extraer código reparado
-                    if hasattr(repaired_code, 'raw'):
-                        repaired_text = repaired_code.raw
+                    repaired_code = repair_agent.kickoff(repair_prompt)
+
+                    if repaired_code and not str(repaired_code).isspace():
+                        if hasattr(repaired_code, 'raw'):
+                            repaired_text = repaired_code.raw
+                        else:
+                            repaired_text = str(repaired_code)
+
+                        if repaired_text and not repaired_text.isspace():
+                            print("[ARCHITECT] Código reparado recibido. Sobrescribiendo archivos...")
+                            execute_plan(repaired_text, workspace_base=Path(self.workspace_path))
+                            crew_code = repaired_text
+
+                            # Volver a ejecutar QA sobre el código reparado para ver si mejoró
+                            try:
+                                from workflows.ecommerce_workflow import run_ecommerce_workflow
+                                # Solo queremos el QA del nuevo código, no regenerar todo
+                                qa_response = repair_agent.kickoff(
+                                    f"Revisa el siguiente código y genera un informe de auditoría:\n\n{repaired_text}"
+                                )
+                                if qa_response and not str(qa_response).isspace():
+                                    if hasattr(qa_response, 'raw'):
+                                        qa_report = qa_response.raw
+                                    else:
+                                        qa_report = str(qa_response)
+                                    print("[ARCHITECT] QA actualizado tras reparación.")
+                            except Exception as qa_err:
+                                print(f"[ARCHITECT] Error al re-ejecutar QA (no crítico): {qa_err}")
+
+                            # Si el informe ya no contiene problemas graves, salir del bucle
+                            if "error" not in qa_report.lower() and "vulnerabilidad" not in qa_report.lower():
+                                print("[ARCHITECT] QA limpio. Reparación iterativa completada.")
+                                break
+                        else:
+                            print("[ARCHITECT] La respuesta del Repair Agent está vacía.")
                     else:
-                        repaired_text = str(repaired_code)
-                    
-                    if repaired_text and not repaired_text.isspace():
-                        print("[ARCHITECT] Código reparado recibido. Sobrescribiendo archivos...")
-                        execute_plan(repaired_text, workspace_base=Path(self.workspace_path))
-                        crew_code = repaired_text  # Actualizar para el reporte
-                        print("[ARCHITECT] Reparación automática aplicada.")
-            except Exception as e:
-                print(f"[ARCHITECT] Error en reparación automática (no crítico): {e}")
+                        print("[ARCHITECT] El Repair Agent no devolvió código válido.")
+                except Exception as e:
+                    print(f"[ARCHITECT] Error en reparación iterativa (no crítico): {e}")
 
         # ─── FASE 4: ANÁLISIS Y EJECUCIÓN ───
         try:

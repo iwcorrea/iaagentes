@@ -15,9 +15,13 @@ export default function ConsolePanel() {
   }
 
   return (
-    <div className="p-4 flex flex-col h-full">
-      <button onClick={execute} className="self-start bg-green-600 text-white px-4 py-2 rounded-lg mb-4">Ejecutar proyecto</button>
-      <pre className="flex-1 bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto font-mono text-sm">{output || 'Presioná Ejecutar para ver la salida.'}</pre>
+    <div className="p-6 flex flex-col h-full">
+      <button onClick={execute} className="self-start bg-gradient-to-r from-green-600 to-emerald-500 text-white px-6 py-2.5 rounded-xl font-medium mb-4 shadow-lg shadow-green-500/20 hover:from-green-500 hover:to-emerald-400 transition">
+        Ejecutar proyecto
+      </button>
+      <pre className="flex-1 bg-gray-900/80 border border-gray-700/50 text-green-400 p-4 rounded-xl overflow-auto font-mono text-sm">
+        {output || 'Presioná Ejecutar para ver la salida.'}
+      </pre>
     </div>
   )
 }

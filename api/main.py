@@ -389,3 +389,28 @@ def cleanup_improvements():
 @app.get("/improvements")
 def improvements_panel():
     return FileResponse("frontend/improvements.html")
+
+# ─── NOMBRE DE PROYECTO ───
+@app.put("/projects/{project_id}/name")
+def update_project_name(project_id: str, name: str = Body(..., embed=True)):
+    project_path = project_manager.get_project_path(project_id)
+    if not project_path:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    meta_path = project_path / "project.json"
+    meta = {}
+    if meta_path.exists():
+        meta = json_module.loads(meta_path.read_text(encoding='utf-8'))
+    meta["name"] = name
+    meta_path.write_text(json_module.dumps(meta, indent=2), encoding='utf-8')
+    return {"status": "ok", "name": name}
+
+@app.get("/projects/{project_id}/name")
+def get_project_name(project_id: str):
+    project_path = project_manager.get_project_path(project_id)
+    if not project_path:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    meta_path = project_path / "project.json"
+    if meta_path.exists():
+        meta = json_module.loads(meta_path.read_text(encoding='utf-8'))
+        return {"name": meta.get("name", project_id)}
+    return {"name": project_id}

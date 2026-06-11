@@ -15,16 +15,16 @@ export default function Sidebar() {
   useEffect(() => { loadFiles() }, [activeProjectId])
 
   return (
-    <aside className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col text-sm">
-      <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-        <span className="font-medium">Archivos</span>
-        <button onClick={() => setActiveProjectId(null)} className="text-gray-400 hover:text-red-500">
+    <aside className="w-64 bg-gray-800/40 backdrop-blur-sm border-r border-gray-700/30 flex flex-col">
+      <div className="p-4 border-b border-gray-700/30 flex justify-between items-center">
+        <span className="font-semibold text-gray-200">Archivos</span>
+        <button onClick={() => setActiveProjectId(null)} className="text-gray-500 hover:text-red-400 transition">
           ✕
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      <div className="flex-1 overflow-y-auto p-3 space-y-1">
         {files.map(f => (
-          <div key={f} className="hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded cursor-pointer truncate">
+          <div key={f} className="text-gray-400 hover:text-gray-200 hover:bg-gray-700/30 px-3 py-1.5 rounded-lg cursor-pointer text-sm transition truncate">
             📄 {f}
           </div>
         ))}

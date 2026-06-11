@@ -1,103 +1,100 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es-CO">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🤖 Panel de Agentes de IA de Wilson</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" id="highlight-theme">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <style>
-        .tab-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; }
-        .code-block { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; font-family: monospace; white-space: pre-wrap; max-height: 60vh; overflow-y: auto; }
-        .sidebar { width: 300px; min-width: 300px; }
-        .modal-overlay { background: rgba(0,0,0,0.7); backdrop-filter: blur(2px); }
-        .console-output { height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; background: #0f172a; color: #e2e8f0; padding: 8px; border-radius: 4px; }
-        .badge-new { background: #10b981; color: white; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
-    </style>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
 </head>
-<body class="bg-gray-900 text-gray-100 h-screen flex flex-col">
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 h-screen flex flex-col transition-colors">
 
     <!-- Header -->
-    <header class="bg-gray-800 border-b border-gray-700 px-6 py-3 flex items-center justify-between flex-shrink-0">
+    <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 md:px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div class="flex items-center gap-3">
-            <i class="fas fa-brain text-2xl text-blue-400"></i>
+            <i class="fas fa-brain text-2xl text-blue-600 dark:text-blue-400"></i>
             <div>
-                <h1 class="text-lg font-bold">Panel de Agentes de IA de Wilson</h1>
-                <p class="text-xs text-gray-400">Arquitecto Autónomo de Software</p>
+                <h1 class="text-lg font-bold hidden sm:block">Panel de Agentes de IA de Wilson</h1>
+                <p class="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">Arquitecto Autónomo de Software</p>
             </div>
         </div>
-        <div class="flex items-center gap-4">
-            <span id="current-project-badge" class="text-xs text-gray-400 hidden">
-                Proyecto: <span id="current-project-id" class="font-mono text-blue-400"></span>
+        <div class="flex items-center gap-3">
+            <span id="current-project-badge" class="text-xs text-gray-500 dark:text-gray-400 hidden md:inline">
+                Proyecto: <span id="current-project-id" class="font-mono text-blue-600 dark:text-blue-400"></span>
             </span>
-            <span id="status-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-green-600">Conectado</span>
+            <button id="theme-toggle" onclick="toggleTheme()" class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition" title="Cambiar tema">
+                <i class="fas fa-moon dark:fa-sun"></i>
+            </button>
+            <span id="status-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Conectado</span>
         </div>
     </header>
 
     <!-- Main Layout -->
     <div class="flex flex-1 overflow-hidden">
-
-        <!-- Sidebar: Árbol de archivos -->
-        <aside id="sidebar" class="sidebar bg-gray-800 border-r border-gray-700 flex flex-col hidden">
-            <div class="p-4 border-b border-gray-700 flex justify-between items-center">
-                <h2 class="text-sm font-bold">📁 Archivos</h2>
+        <!-- Sidebar -->
+        <aside id="sidebar" class="hidden md:flex md:flex-col w-72 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex-shrink-0">
+            <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+                <div class="flex justify-between items-center mb-2">
+                    <h2 class="text-sm font-bold">📁 Archivos del proyecto</h2>
+                    <button onclick="hideSidebar()" class="text-gray-400 hover:text-red-500 text-xs" title="Cerrar proyecto"><i class="fas fa-times-circle"></i> Cerrar</button>
+                </div>
                 <div class="flex gap-2">
-                    <button onclick="loadFiles()" class="text-gray-400 hover:text-white text-xs"><i class="fas fa-sync-alt"></i></button>
-                    <button onclick="executeProject()" class="text-green-400 hover:text-green-300 text-xs" title="Ejecutar proyecto"><i class="fas fa-play"></i></button>
+                    <button onclick="loadFiles()" class="text-gray-400 hover:text-gray-600 dark:hover:text-white text-xs" title="Refrescar"><i class="fas fa-sync-alt"></i></button>
+                    <button onclick="executeProject()" class="text-green-500 hover:text-green-700 text-xs" title="Ejecutar proyecto"><i class="fas fa-play"></i> Ejecutar</button>
+                    <button id="btn-live" onclick="switchTab('preview')" class="text-purple-500 hover:text-purple-700 text-xs hidden" title="Ver vista previa"><i class="fas fa-eye"></i> Vista previa</button>
                 </div>
             </div>
             <div id="files-tree" class="flex-1 overflow-y-auto p-2 text-sm"></div>
-            <div class="border-t border-gray-700 p-2 flex gap-2">
-                <button onclick="runMetaAgentOnCurrent()" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-xs py-1 rounded transition"><i class="fas fa-brain mr-1"></i>MetaAgent</button>
+            <div class="border-t border-gray-200 dark:border-gray-700 p-2 flex gap-2">
+                <button onclick="runMetaAgentOnCurrent()" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-xs py-1.5 rounded transition"><i class="fas fa-brain mr-1"></i>MetaAgent</button>
             </div>
         </aside>
 
         <!-- Main Content -->
         <main class="flex-1 flex flex-col overflow-hidden">
-
-            <!-- Tabs -->
-            <nav class="bg-gray-800 border-b border-gray-700 px-6 flex gap-6 flex-shrink-0">
-                <button class="tab-active py-3 text-sm font-medium transition" onclick="switchTab('chat')"><i class="fas fa-comments mr-2"></i>Chat</button>
-                <button class="py-3 text-sm font-medium text-gray-400 hover:text-white transition" onclick="switchTab('projects')"><i class="fas fa-folder mr-2"></i>Proyectos</button>
-                <button class="py-3 text-sm font-medium text-gray-400 hover:text-white transition" onclick="switchTab('improvements')"><i class="fas fa-lightbulb mr-2"></i>Mejoras</button>
-                <button class="py-3 text-sm font-medium text-gray-400 hover:text-white transition" onclick="switchTab('console')"><i class="fas fa-terminal mr-2"></i>Consola</button>
+            <nav class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 md:px-6 flex gap-4 md:gap-6 overflow-x-auto flex-shrink-0">
+                <button class="tab-active py-3 text-sm font-medium transition whitespace-nowrap" onclick="switchTab('chat')"><i class="fas fa-comments mr-2"></i>Chat</button>
+                <button class="py-3 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition whitespace-nowrap" onclick="switchTab('projects')"><i class="fas fa-folder mr-2"></i>Proyectos</button>
+                <button class="py-3 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition whitespace-nowrap" onclick="switchTab('improvements')"><i class="fas fa-lightbulb mr-2"></i>Mejoras</button>
+                <button class="py-3 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition whitespace-nowrap" onclick="switchTab('preview')"><i class="fas fa-eye mr-2"></i>Vista previa</button>
+                <button class="py-3 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white transition whitespace-nowrap" onclick="switchTab('console')"><i class="fas fa-terminal mr-2"></i>Consola</button>
             </nav>
 
-            <!-- Tab: Chat -->
-            <section id="tab-chat" class="flex-1 flex flex-col p-6 overflow-hidden">
-                <div class="bg-gray-800 rounded-xl border border-gray-700 p-4 flex-1 overflow-y-auto mb-4" id="chat-messages">
-                    <div class="text-center text-gray-500 mt-20" id="chat-placeholder">
+            <section id="tab-chat" class="flex-1 flex flex-col p-4 md:p-6 overflow-hidden">
+                <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex-1 overflow-y-auto mb-4" id="chat-messages">
+                    <div class="text-center text-gray-400 dark:text-gray-500 mt-20" id="chat-placeholder">
                         <i class="fas fa-robot text-5xl mb-4"></i>
-                        <p class="text-lg">Escribe un prompt para <b>crear un nuevo proyecto</b></p>
-                        <p class="text-sm mt-2">o selecciona un proyecto existente para <b>modificarlo</b>.</p>
+                        <p class="text-lg font-medium">¿Qué proyecto querés crear, parce?</p>
+                        <p class="text-sm mt-2">Describí la aplicación que necesitás y los agentes se pondrán a trabajar.</p>
                     </div>
                 </div>
+                <div id="agent-progress" class="hidden mb-3 text-sm text-blue-600 dark:text-blue-400">
+                    <i class="fas fa-spinner fa-spin mr-2"></i><span id="progress-text">Planificando arquitectura...</span>
+                </div>
                 <div class="flex gap-3 flex-shrink-0">
-                    <textarea id="chat-input" rows="2" placeholder="Describe la aplicación que quieres crear o modificar..." class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
-                    <button onclick="sendPrompt()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition self-end"><i class="fas fa-paper-plane mr-2"></i>Enviar</button>
-                </div>
-                <div id="loading-indicator" class="hidden mt-3 text-center text-blue-400 text-sm">
-                    <i class="fas fa-spinner fa-spin mr-2"></i><span id="agent-status-text">Los agentes están trabajando...</span>
+                    <textarea id="chat-input" rows="2" placeholder="Ej: Crear una app de cobro diario con FastAPI y React..." class="flex-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-3 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
+                    <button onclick="sendPrompt()" id="send-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition self-end flex items-center gap-2">
+                        <i class="fas fa-paper-plane"></i><span class="hidden sm:inline">Crear</span>
+                    </button>
                 </div>
             </section>
 
-            <!-- Tab: Projects -->
-            <section id="tab-projects" class="flex-1 p-6 overflow-y-auto hidden">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-xl font-bold">📁 Proyectos Generados</h2>
-                    <button onclick="loadProjects()" class="text-blue-400 hover:text-blue-300 transition text-sm"><i class="fas fa-sync-alt mr-2"></i>Refrescar</button>
+            <section id="tab-projects" class="flex-1 p-4 md:p-6 overflow-y-auto hidden">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                    <h2 class="text-xl font-bold">📁 Proyectos generados</h2>
+                    <button onclick="loadProjects()" class="text-blue-600 dark:text-blue-400 hover:underline text-sm"><i class="fas fa-sync-alt mr-2"></i>Refrescar</button>
                 </div>
-                <div id="projects-list" class="space-y-3"></div>
+                <div id="projects-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
             </section>
 
-            <!-- Tab: Improvements -->
-            <section id="tab-improvements" class="flex-1 p-6 overflow-y-auto hidden">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-xl font-bold">💡 Panel de Mejoras</h2>
+            <section id="tab-improvements" class="flex-1 p-4 md:p-6 overflow-y-auto hidden">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                    <h2 class="text-xl font-bold">💡 Panel de mejoras</h2>
                     <div class="flex gap-3">
-                        <select id="improvement-filter" onchange="loadImprovements()" class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm">
+                        <select id="improvement-filter" onchange="loadImprovements()" class="bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm">
                             <option value="pending">Pendientes</option>
                             <option value="approved">Aprobadas</option>
                             <option value="applied">Aplicadas</option>
@@ -108,40 +105,67 @@
                 <div id="improvements-list" class="space-y-4"></div>
             </section>
 
-            <!-- Tab: Console -->
-            <section id="tab-console" class="flex-1 p-6 overflow-y-auto hidden">
-                <h2 class="text-xl font-bold mb-4">🖥️ Consola de Ejecución</h2>
-                <div id="console-output" class="console-output">Presiona "Ejecutar proyecto" (▶️) en la barra lateral para probar el proyecto.</div>
+            <section id="tab-preview" class="flex-1 flex flex-col p-4 md:p-6 overflow-hidden hidden">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="text-xl font-bold">👁️ Vista previa del proyecto</h2>
+                    <div class="flex gap-2">
+                        <button onclick="refreshPreview()" class="text-blue-600 dark:text-blue-400 hover:underline text-sm"><i class="fas fa-sync-alt mr-1"></i>Refrescar</button>
+                        <button onclick="openLivePreview()" class="text-purple-600 dark:text-purple-400 hover:underline text-sm"><i class="fas fa-external-link-alt mr-1"></i>Abrir en nueva pestaña</button>
+                    </div>
+                </div>
+                <div class="flex-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <iframe id="preview-iframe" src="about:blank" class="w-full h-full" sandbox="allow-scripts allow-same-origin"></iframe>
+                </div>
+            </section>
+
+            <section id="tab-console" class="flex-1 p-4 md:p-6 overflow-y-auto hidden">
+                <h2 class="text-xl font-bold mb-4">🖥️ Consola de ejecución</h2>
+                <div id="console-output" class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm h-64 overflow-y-auto">Presioná "Ejecutar" en la barra lateral para probar el proyecto.</div>
             </section>
         </main>
     </div>
 
-    <!-- Modal para ver/editar código -->
-    <div id="code-modal" class="fixed inset-0 modal-overlay flex items-center justify-center z-50 hidden">
-        <div class="bg-gray-800 rounded-xl border border-gray-600 w-3/4 h-3/4 flex flex-col">
-            <div class="flex justify-between items-center p-4 border-b border-gray-700">
+    <!-- Modal -->
+    <div id="code-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-600 w-11/12 md:w-3/4 h-3/4 flex flex-col">
+            <div class="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
                 <h3 class="font-bold" id="modal-file-name"></h3>
                 <div class="flex gap-2">
-                    <button id="edit-toggle-btn" onclick="toggleEditMode()" class="text-yellow-400 hover:text-yellow-300 text-sm"><i class="fas fa-edit mr-1"></i>Editar</button>
-                    <button id="save-file-btn" onclick="saveFile()" class="text-green-400 hover:text-green-300 text-sm hidden"><i class="fas fa-save mr-1"></i>Guardar</button>
-                    <button onclick="closeModal()" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+                    <button id="edit-toggle-btn" onclick="toggleEditMode()" class="text-yellow-600 hover:text-yellow-700 text-sm"><i class="fas fa-edit mr-1"></i>Editar</button>
+                    <button id="save-file-btn" onclick="saveFile()" class="text-green-600 hover:text-green-700 text-sm hidden"><i class="fas fa-save mr-1"></i>Guardar</button>
+                    <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-white"><i class="fas fa-times"></i></button>
                 </div>
             </div>
             <div class="flex-1 overflow-hidden p-4">
                 <pre id="modal-code" class="code-block h-full text-sm"></pre>
-                <textarea id="modal-editor" class="hidden w-full h-full bg-gray-900 text-gray-100 p-4 font-mono text-sm resize-none focus:outline-none"></textarea>
+                <textarea id="modal-editor" class="hidden w-full h-full bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-4 font-mono text-sm resize-none focus:outline-none border rounded"></textarea>
             </div>
         </div>
     </div>
 
+    <!-- Toast container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
+
     <script>
+        // ─── VARIABLES GLOBALES ───
         const API = 'http://localhost:8000';
         let activeProjectId = null;
         let chatHistory = [];
         let currentFileContent = '';
         let currentFilePath = '';
 
-        // ──── UTILIDADES ────
+        // ─── TEMA ───
+        function toggleTheme() {
+            document.documentElement.classList.toggle('dark');
+            const icon = document.querySelector('#theme-toggle i');
+            if (document.documentElement.classList.contains('dark')) {
+                icon.className = 'fas fa-sun';
+            } else {
+                icon.className = 'fas fa-moon';
+            }
+        }
+
+        // ─── NAVEGACIÓN ───
         function switchTab(tab) {
             document.querySelectorAll('main section').forEach(s => s.classList.add('hidden'));
             const target = document.getElementById('tab-' + tab);
@@ -150,8 +174,10 @@
             event.target.classList.add('tab-active');
             if (tab === 'projects') loadProjects();
             if (tab === 'improvements') loadImprovements();
+            if (tab === 'preview' && activeProjectId) refreshPreview();
         }
 
+        // ─── SIDEBAR ───
         function showSidebar(projectId) {
             activeProjectId = projectId;
             document.getElementById('sidebar').classList.remove('hidden');
@@ -159,21 +185,33 @@
             document.getElementById('current-project-id').textContent = projectId;
             loadFiles();
             loadChatHistory();
+            document.getElementById('btn-live').classList.remove('hidden');
         }
 
         function hideSidebar() {
             activeProjectId = null;
             document.getElementById('sidebar').classList.add('hidden');
             document.getElementById('current-project-badge').classList.add('hidden');
+            document.getElementById('btn-live').classList.add('hidden');
             document.getElementById('chat-messages').innerHTML = '';
             document.getElementById('chat-placeholder').classList.remove('hidden');
             chatHistory = [];
         }
 
-        // ──── MODAL ────
+        // ─── TOAST ───
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        // ─── MODAL ───
         function viewFile(filename) {
             if (!activeProjectId) return;
-            fetch(API + '/projects/' + activeProjectId + '/file?path=' + encodeURIComponent(filename))
+            fetch(`${API}/projects/${activeProjectId}/file?path=${encodeURIComponent(filename)}`)
                 .then(r => r.json())
                 .then(data => {
                     currentFilePath = filename;
@@ -189,9 +227,7 @@
                 });
         }
 
-        function closeModal() {
-            document.getElementById('code-modal').classList.add('hidden');
-        }
+        function closeModal() { document.getElementById('code-modal').classList.add('hidden'); }
 
         function toggleEditMode() {
             const codeEl = document.getElementById('modal-code');
@@ -208,10 +244,10 @@
         async function saveFile() {
             const newContent = document.getElementById('modal-editor').value;
             try {
-                const res = await fetch(API + '/projects/' + activeProjectId + '/file', {
+                const res = await fetch(`${API}/projects/${activeProjectId}/file?path=${encodeURIComponent(currentFilePath)}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: currentFilePath, content: newContent })
+                    body: JSON.stringify({ content: newContent })
                 });
                 if (res.ok) {
                     currentFileContent = newContent;
@@ -221,30 +257,27 @@
                     document.getElementById('edit-toggle-btn').classList.remove('hidden');
                     document.getElementById('save-file-btn').classList.add('hidden');
                     hljs.highlightElement(document.getElementById('modal-code'));
+                    showToast('Archivo guardado con éxito', 'success');
                 }
-            } catch { alert('Error al guardar'); }
+            } catch { showToast('Error al guardar el archivo', 'error'); }
         }
 
-        // ──── CHAT (Permite crear nuevo proyecto o modificar existente) ────
+        // ─── CHAT ───
         async function sendPrompt() {
             const input = document.getElementById('chat-input');
             const prompt = input.value.trim();
             if (!prompt) return;
             input.value = '';
-            document.getElementById('loading-indicator').classList.remove('hidden');
-            document.getElementById('agent-status-text').textContent = 'Director planificando...';
             
-            // Mostrar el mensaje del usuario inmediatamente
+            document.getElementById('agent-progress').classList.remove('hidden');
+            document.getElementById('progress-text').textContent = 'Planificando arquitectura...';
+            document.getElementById('send-btn').disabled = true;
+            
             addMessage('user', prompt);
 
             const body = { messages: [{ role: 'user', content: prompt }] };
-            let url = API + '/v1/chat/completions';
-            
-            // Si hay un proyecto activo, lo enviamos como project_id para modificarlo
-            if (activeProjectId) {
-                url += '?project_id=' + activeProjectId;
-            }
-            // Si no hay proyecto activo, el backend creará uno nuevo automáticamente
+            let url = `${API}/v1/chat/completions`;
+            if (activeProjectId) url += `?project_id=${activeProjectId}`;
 
             try {
                 const res = await fetch(url, {
@@ -256,53 +289,52 @@
                 const content = data.choices?.[0]?.message?.content || 'Sin respuesta';
                 addMessage('assistant', content);
 
-                // Extraer el ID del proyecto de la respuesta
                 const projectIdMatch = content.match(/Proyecto ID: (\w+)/);
                 if (projectIdMatch && !activeProjectId) {
-                    const newProjectId = projectIdMatch[1];
-                    // Abrir automáticamente el nuevo proyecto
-                    showSidebar(newProjectId);
-                    loadProjects(); // Refrescar la lista de proyectos
+                    showSidebar(projectIdMatch[1]);
+                    loadProjects();
+                    showToast('¡Proyecto creado con éxito, parce!', 'success');
                 }
 
-                // Guardar en historial si hay proyecto activo
                 if (activeProjectId) {
                     chatHistory.push({ role: 'user', content: prompt });
                     chatHistory.push({ role: 'assistant', content: content });
                     saveChatHistory();
-                    loadFiles(); // Refrescar archivos por si se modificaron
+                    loadFiles();
+                    showToast('Proyecto modificado correctamente', 'success');
                 }
             } catch (e) {
-                addMessage('assistant', '❌ Error de conexión');
+                addMessage('assistant', '❌ Error de conexión con el servidor.');
+                showToast('Error al comunicarse con los agentes', 'error');
             } finally {
-                document.getElementById('loading-indicator').classList.add('hidden');
+                document.getElementById('agent-progress').classList.add('hidden');
+                document.getElementById('send-btn').disabled = false;
             }
         }
 
         function addMessage(role, text) {
-            // Ocultar placeholder si existe
             const placeholder = document.getElementById('chat-placeholder');
             if (placeholder) placeholder.classList.add('hidden');
-            
             const container = document.getElementById('chat-messages');
             const div = document.createElement('div');
             div.className = `mb-3 ${role === 'user' ? 'text-right' : 'text-left'}`;
             div.innerHTML = role === 'user'
                 ? `<span class="bg-blue-600 text-white px-4 py-2 rounded-lg inline-block max-w-2xl">${text}</span>`
-                : `<span class="bg-gray-700 text-gray-100 px-4 py-2 rounded-lg inline-block max-w-2xl overflow-x-auto"><pre class="whitespace-pre-wrap text-sm">${text}</pre></span>`;
+                : `<span class="bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 px-4 py-2 rounded-lg inline-block max-w-2xl overflow-x-auto"><pre class="whitespace-pre-wrap text-sm">${text}</pre></span>`;
             container.appendChild(div);
             container.scrollTop = container.scrollHeight;
         }
 
         function loadChatHistory() {
             chatHistory = [];
-            document.getElementById('chat-messages').innerHTML = '';
+            const container = document.getElementById('chat-messages');
+            container.innerHTML = '';
             document.getElementById('chat-placeholder').classList.add('hidden');
             if (!activeProjectId) return;
-            fetch(API + '/projects/' + activeProjectId + '/chat')
+            fetch(`${API}/projects/${activeProjectId}/chat`)
                 .then(r => r.json())
                 .then(data => {
-                    if (data.messages && data.messages.length > 0) {
+                    if (data.messages && data.messages.length) {
                         data.messages.forEach(m => addMessage(m.role, m.content));
                     } else {
                         document.getElementById('chat-placeholder').classList.remove('hidden');
@@ -312,125 +344,161 @@
 
         function saveChatHistory() {
             if (!activeProjectId) return;
-            fetch(API + '/projects/' + activeProjectId + '/chat', {
+            fetch(`${API}/projects/${activeProjectId}/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ messages: chatHistory })
             }).catch(() => {});
         }
 
-        // ──── PROYECTOS ────
+        // ─── PROYECTOS ───
         async function loadProjects() {
             try {
-                const res = await fetch(API + '/projects');
+                const res = await fetch(`${API}/projects`);
                 const data = await res.json();
                 const list = document.getElementById('projects-list');
                 list.innerHTML = data.projects.length
                     ? data.projects.map(id => `
-                        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4 flex justify-between items-center">
-                            <span class="font-mono text-blue-400">${id}</span>
-                            <div class="flex gap-2">
-                                <button onclick="showSidebar('${id}')" class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded">Abrir</button>
-                                <button onclick="hideSidebar()" class="text-sm text-gray-400 hover:text-white px-3 py-1 rounded">Cerrar</button>
+                        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex flex-col gap-3">
+                            <div class="flex items-center gap-2">
+                                <i class="fas fa-folder text-blue-500"></i>
+                                <span class="font-mono text-blue-600 dark:text-blue-400 font-medium">${id}</span>
+                            </div>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">📁 projects/${id}</p>
+                            <div class="flex gap-2 mt-auto">
+                                <button onclick="showSidebar('${id}')" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm px-3 py-1.5 rounded transition">Abrir</button>
+                                <button onclick="deleteProject('${id}')" class="text-red-500 hover:text-red-700 text-sm px-3 py-1.5 rounded border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 transition">Eliminar</button>
                             </div>
                         </div>`).join('')
-                    : `<div class="text-center text-gray-500 py-10"><i class="fas fa-folder-open text-5xl mb-3"></i><p>No hay proyectos generados aún.</p><p class="text-sm mt-1">Usá el <b>Chat</b> para crear uno.</p></div>`;
+                    : `<div class="col-span-full text-center text-gray-500 dark:text-gray-400 py-10"><i class="fas fa-folder-open text-5xl mb-3"></i><p>Todavía no hay proyectos generados.</p><p class="text-sm mt-1">Usá el <b>Chat</b> para crear el primero.</p></div>`;
             } catch { /* */ }
         }
 
-        // ──── ARCHIVOS ────
+        async function deleteProject(id) {
+            if (!confirm(`¿Estás seguro de eliminar el proyecto ${id}? Esta acción no se puede deshacer.`)) return;
+            showToast('Funcionalidad de eliminación en desarrollo', 'info');
+        }
+
+        // ─── ARCHIVOS ───
         async function loadFiles() {
             if (!activeProjectId) return;
             try {
-                const res = await fetch(API + '/projects/' + activeProjectId + '/files');
+                const res = await fetch(`${API}/projects/${activeProjectId}/files`);
                 const data = await res.json();
                 const tree = document.getElementById('files-tree');
                 tree.innerHTML = data.files.length
                     ? data.files.map(f => `
-                        <div class="flex items-center gap-2 py-1 hover:bg-gray-700 rounded px-2 cursor-pointer" onclick="viewFile('${f}')">
+                        <div class="flex items-center gap-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded px-2 cursor-pointer transition" onclick="viewFile('${f}')">
                             <i class="fas fa-file-code text-blue-400 text-xs"></i>
-                            <span class="font-mono text-xs">${f}</span>
+                            <span class="font-mono text-xs truncate">${f}</span>
                         </div>`).join('')
-                    : '<p class="text-gray-500 text-xs">Sin archivos (el proyecto puede estar generándose)</p>';
+                    : '<p class="text-gray-500 text-xs p-2">Sin archivos todavía</p>';
             } catch { /* */ }
         }
 
-        // ──── EJECUCIÓN ────
+        // ─── EJECUCIÓN ───
         async function executeProject() {
             if (!activeProjectId) return;
             document.getElementById('tab-console').classList.remove('hidden');
             switchTab('console');
             const consoleEl = document.getElementById('console-output');
-            consoleEl.textContent = '🔄 Ejecutando proyecto...\n';
-            
+            consoleEl.textContent = '🔄 Instalando dependencias y ejecutando...\n';
             try {
-                const res = await fetch(API + '/projects/' + activeProjectId + '/execute', { method: 'POST' });
+                const res = await fetch(`${API}/projects/${activeProjectId}/execute`, { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
-                    consoleEl.textContent += '✅ Proyecto iniciado correctamente.\n';
+                    consoleEl.textContent += '✅ Proyecto iniciado en http://localhost:8001\n';
                     consoleEl.textContent += '📤 Salida:\n' + data.stdout + '\n';
-                    if (data.stderr) consoleEl.textContent += '⚠️ Errores:\n' + data.stderr + '\n';
+                    document.getElementById('btn-live').classList.remove('hidden');
+                    refreshPreview();
+                    showToast('Proyecto ejecutándose. Revisá la Vista previa.', 'success');
                 } else {
-                    consoleEl.textContent += '❌ Falló la ejecución:\n' + (data.stderr || data.stdout) + '\n';
+                    consoleEl.textContent += '❌ Falló la ejecución:\n' + (data.stderr || data.stdout || 'Error desconocido') + '\n';
+                    showToast('Error al ejecutar el proyecto', 'error');
                 }
             } catch (e) {
                 consoleEl.textContent += '❌ Error de conexión al ejecutar.\n';
+                showToast('Error de conexión', 'error');
             }
         }
 
-        // ──── MEJORAS ────
+        function refreshPreview() {
+            document.getElementById('preview-iframe').src = 'http://localhost:8001';
+        }
+
+        function openLivePreview() {
+            if (activeProjectId) window.open('http://localhost:8001', '_blank');
+        }
+
+        // ─── MEJORAS ───
         async function loadImprovements() {
             const status = document.getElementById('improvement-filter')?.value || 'pending';
             try {
-                const res = await fetch(API + '/system/improvements?status=' + status);
+                const res = await fetch(`${API}/system/improvements?status=${status}`);
                 const data = await res.json();
                 const list = document.getElementById('improvements-list');
                 list.innerHTML = data.proposals.length
                     ? data.proposals.map(p => `
-                        <div class="bg-gray-800 rounded-lg border border-gray-700 p-4">
+                        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
                             <div class="flex justify-between items-start">
                                 <div class="flex-1">
                                     <h4 class="font-bold">${p.title}</h4>
-                                    <p class="text-sm text-gray-400 mt-1">${p.description}</p>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">${p.description}</p>
                                     <span class="text-xs text-gray-500">Archivo: ${p.target_file}</span>
                                     ${p.suggested_code ? `<pre class="code-block text-xs mt-2 max-h-32 overflow-y-auto">${p.suggested_code}</pre>` : ''}
                                 </div>
                                 <div class="flex gap-2 ml-4">
                                     ${p.status === 'pending' ? `
-                                        <button onclick="applyImprovement('${p.id}')" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs">Aplicar</button>
-                                        <button onclick="rejectImprovement('${p.id}')" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs">Rechazar</button>
-                                    ` : `<span class="text-xs px-3 py-1 rounded bg-gray-700 text-gray-400">${p.status}</span>`}
+                                        <button onclick="applyImprovement('${p.id}')" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs transition">Aplicar</button>
+                                        <button onclick="rejectImprovement('${p.id}')" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs transition">Rechazar</button>
+                                    ` : `<span class="text-xs px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400">${p.status}</span>`}
                                 </div>
                             </div>
                         </div>`).join('')
-                    : `<div class="text-center text-gray-500 py-10"><i class="fas fa-check-circle text-5xl mb-3 text-green-500"></i><p>No hay propuestas con estado "${status}".</p></div>`;
+                    : `<div class="text-center text-gray-500 dark:text-gray-400 py-10"><i class="fas fa-check-circle text-5xl mb-3 text-green-500"></i><p>No hay propuestas con estado "${status}".</p></div>`;
             } catch { /* */ }
         }
 
         function applyImprovement(id) {
-            fetch(API + '/system/apply-improvement/' + id, { method: 'POST' }).then(() => loadImprovements());
+            fetch(`${API}/system/apply-improvement/${id}`, { method: 'POST' })
+                .then(() => { loadImprovements(); showToast('Mejora aplicada con éxito', 'success'); });
         }
         function rejectImprovement(id) {
-            fetch(API + '/system/reject-improvement/' + id, { method: 'POST' }).then(() => loadImprovements());
+            fetch(`${API}/system/reject-improvement/${id}`, { method: 'POST' })
+                .then(() => { loadImprovements(); showToast('Mejora rechazada', 'info'); });
         }
         function runMetaAgentOnCurrent() {
             if (!activeProjectId) return;
-            fetch(API + '/system/run-meta-agent?project_id=' + activeProjectId, { method: 'POST' }).then(() => loadImprovements());
+            fetch(`${API}/system/run-meta-agent?project_id=${activeProjectId}`, { method: 'POST' })
+                .then(() => { loadImprovements(); showToast('MetaAgent ejecutado', 'success'); });
         }
 
-        // ──── INICIO ────
-        checkStatus();
-        setInterval(checkStatus, 30000);
+        // ─── STATUS ───
         async function checkStatus() {
             try {
-                const res = await fetch(API + '/');
+                const res = await fetch(`${API}/`);
                 const data = await res.json();
-                document.getElementById('status-badge').className = data.status === 'ok' 
-                    ? 'px-3 py-1 rounded-full text-xs font-semibold bg-green-600'
-                    : 'px-3 py-1 rounded-full text-xs font-semibold bg-red-600';
-                document.getElementById('status-badge').textContent = data.status === 'ok' ? 'Conectado' : 'Desconectado';
-            } catch { document.getElementById('status-badge').textContent = 'Sin conexión'; }
+                const badge = document.getElementById('status-badge');
+                badge.className = data.status === 'ok' 
+                    ? 'px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                    : 'px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+                badge.textContent = data.status === 'ok' ? 'Conectado' : 'Desconectado';
+            } catch {
+                document.getElementById('status-badge').textContent = 'Sin conexión';
+            }
         }
+
+        // ─── ATAJOS ───
+        document.addEventListener('keydown', e => {
+            if (e.ctrlKey && e.key === 'Enter') sendPrompt();
+            if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                if (!document.getElementById('save-file-btn').classList.contains('hidden')) saveFile();
+            }
+        });
+
+        checkStatus();
+        setInterval(checkStatus, 30000);
     </script>
 </body>
 </html>

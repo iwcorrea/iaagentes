@@ -9,6 +9,7 @@ from pydantic import BaseModel
 import tempfile
 import os
 import subprocess
+import sys
 import json as json_module
 from typing import Optional
 from pathlib import Path
@@ -281,7 +282,7 @@ def get_quality_metrics(project_id: Optional[str] = Query(None)):
 def list_projects():
     return {"projects": project_manager.list_projects()}
 
-# ─── EXPLORADOR DE ARCHIVOS DE PROYECTO ───
+# ─── EXPLORADOR DE ARCHIVOS ───
 @app.get("/projects/{project_id}/files")
 def list_project_files(project_id: str):
     project_path = project_manager.get_project_path(project_id)
@@ -314,13 +315,33 @@ def update_project_file(project_id: str, path: str = Query(...), content: str = 
     file_path.write_text(content, encoding='utf-8')
     return {"status": "ok", "message": "Archivo actualizado"}
 
-# ─── EJECUCIÓN DE PROYECTO ───
+# ─── EJECUCIÓN DE PROYECTO (CON INSTALACIÓN AUTOMÁTICA) ───
 @app.post("/projects/{project_id}/execute")
 def execute_project_endpoint(project_id: str):
     project_path = project_manager.get_project_path(project_id)
     if not project_path:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+
+    # 1. Instalar dependencias si existe requirements.txt
+    req_file = project_path / "backend" / "requirements.txt"
+    if not req_file.exists():
+        req_file = project_path / "requirements.txt"
     
+    if req_file.exists():
+        try:
+            install_result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
+                capture_output=True, text=True, timeout=60
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": "Timeout instalando dependencias.",
+                "execution_type": "desconocido"
+            }
+
+    # 2. Ejecutar el proyecto
     from core.executor import ProjectExecutor
     executor = ProjectExecutor(str(project_path))
     result = executor.execute_project()

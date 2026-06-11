@@ -82,3 +82,4 @@ service-account.json
 .ruff_cache/
 *.pyc
 *.pyo
+nfrontend/frontend/node_modules/

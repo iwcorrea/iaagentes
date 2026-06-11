@@ -1,104 +1,63 @@
-import React, { useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import Header from './components/Header';
-import Sidebar from './components/Sidebar';
-import ChatPanel from './components/ChatPanel';
-import ProjectList from './components/ProjectList';
-import ImprovementsPanel from './components/ImprovementsPanel';
-import PreviewPanel from './components/PreviewPanel';
-import ConsolePanel from './components/ConsolePanel';
-import CodeViewer from './components/CodeViewer';
-import Toast from './components/Toast';
-import api from './api/axios';
-const ProtectedRoute = ({ children }) => {
-  const token = localStorage.getItem('token');
-  return token ? children : <Navigate to="/login" />;
-};
-function App() {
-  const [activeProject, setActiveProject] = useState(null);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [notification, setNotification] = useState(null);
-  const notify = (message, type = 'info') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3000);
-  };
+import { useState } from 'react'
+import Header from './components/Header'
+import Sidebar from './components/Sidebar'
+import ChatPanel from './components/ChatPanel'
+import ProjectList from './components/ProjectList'
+import ImprovementsPanel from './components/ImprovementsPanel'
+import PreviewPanel from './components/PreviewPanel'
+import ConsolePanel from './components/ConsolePanel'
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('chat')
+  const [activeProjectId, setActiveProjectId] = useState(null)
+
+  const handleOpenProject = (id) => {
+    setActiveProjectId(id)
+    setActiveTab('chat')
+  }
+
+  const handleCloseProject = () => {
+    setActiveProjectId(null)
+  }
+
   return (
-    <div className="h-screen flex flex-col">
-      <Header onLogout={() => { localStorage.clear(); window.location.href = '/login'; }} />
-      <div className="flex-1 flex overflow-hidden">
-        <Routes>
-          <Route path="/login" element={<Login notify={notify} />} />
-          <Route 
-            path="/" 
-            element={
-              <ProtectedRoute>
-                <div className="flex w-full h-full">
-                  <Sidebar 
-                    onSelectProject={setActiveProject} 
-                    activeProject={activeProject} 
-                    onSelectFile={setSelectedFile}
-                    selectedFile={selectedFile}
-                  />
-                  <main className="flex-1 flex flex-col overflow-hidden">
-                    {!activeProject ? (
-                      <ProjectList onOpenProject={setActiveProject} notify={notify} />
-                    ) : (
-                      <div className="flex h-full">
-                        <div className="flex-1 flex flex-col border-r border-brand-border">
-                          <CodeViewer file={selectedFile} project={activeProject} />
-                          <ConsolePanel project={activeProject} />
-                        </div>
-                        <div className="w-1/3 flex flex-col">
-                          <ChatPanel project={activeProject} />
-                          <ImprovementsPanel project={activeProject} />
-                        </div>
-                        <PreviewPanel project={activeProject} />
-                      </div>
-                    )}
-                  </main>
-                </div>
-              </ProtectedRoute>
-            } 
-          />
-        </Routes>
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors">
+      <Header activeProjectId={activeProjectId} onCloseProject={handleCloseProject} />
+      <div className="flex flex-1 overflow-hidden">
+        {activeProjectId && (
+          <Sidebar projectId={activeProjectId} onClose={handleCloseProject} />
+        )}
+        <main className="flex-1 flex flex-col overflow-hidden">
+          <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 flex gap-1 overflow-x-auto">
+            {[
+              { id: 'chat', label: '💬 Chat' },
+              { id: 'projects', label: '📁 Proyectos' },
+              { id: 'improvements', label: '💡 Mejoras' },
+              { id: 'preview', label: '👁️ Vista previa' },
+              { id: 'console', label: '🖥️ Consola' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`py-3 px-4 text-sm font-medium whitespace-nowrap border-b-2 transition ${
+                  activeTab === tab.id
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+          <div className="flex-1 overflow-y-auto">
+            {activeTab === 'chat' && <ChatPanel projectId={activeProjectId} />}
+            {activeTab === 'projects' && <ProjectList onOpen={handleOpenProject} />}
+            {activeTab === 'improvements' && <ImprovementsPanel projectId={activeProjectId} />}
+            {activeTab === 'preview' && <PreviewPanel projectId={activeProjectId} />}
+            {activeTab === 'console' && <ConsolePanel projectId={activeProjectId} />}
+          </div>
+        </main>
       </div>
-      <Toast notification={notification} />
     </div>
-  );
+  )
 }
-function Login({ notify }) {
-  const [form, setForm] = useState({ email: '', password: '' });
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    try {
-      const { data } = await api.post('/auth/token', {
-        username: form.email,
-        password: form.password
-      });
-      localStorage.setItem('token', data.access_token);
-      window.location.href = '/';
-    } catch (err) {
-      notify(err.response?.data?.detail || 'Login failed', 'error');
-    }
-  };
-  return (
-    <div className="h-full flex items-center justify-center bg-brand-dark">
-      <form onSubmit={handleLogin} className="bg-brand-surface p-8 rounded-xl border border-brand-border w-96 space-y-4">
-        <h2 className="text-2xl font-bold mb-6 text-center">Welcome Back</h2>
-        <input 
-          className="w-full p-2 rounded bg-brand-dark border border-brand-border text-white" 
-          placeholder="Email" 
-          onChange={e => setForm({...form, email: e.target.value})}
-        />
-        <input 
-          type="password" 
-          className="w-full p-2 rounded bg-brand-dark border border-brand-border text-white" 
-          placeholder="Password" 
-          onChange={e => setForm({...form, password: e.target.value})}
-        />
-        <button type="submit" className="w-full bg-brand-accent p-2 rounded font-bold hover:bg-blue-600 transition">Login</button>
-      </form>
-    </div>
-  );
-}
-export default App;

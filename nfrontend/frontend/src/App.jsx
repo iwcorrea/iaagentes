@@ -6,6 +6,7 @@ import ProjectList from './components/ProjectList'
 import PreviewPanel from './components/PreviewPanel'
 import ConsolePanel from './components/ConsolePanel'
 import TeamPanel from './components/TeamPanel'
+import SettingsPanel from './components/SettingsPanel'
 import { ProjectProvider, useProject } from './context/ProjectContext'
 
 function MainContent() {
@@ -17,7 +18,8 @@ function MainContent() {
     { id: 'projects', label: 'Proyectos', icon: '📁' },
     { id: 'team', label: 'Equipo', icon: '👥' },
     { id: 'preview', label: 'Vista previa', icon: '👁️' },
-    { id: 'console', label: 'Consola', icon: '🖥️' }
+    { id: 'console', label: 'Consola', icon: '🖥️' },
+    { id: 'settings', label: 'Configuración', icon: '⚙️' }
   ]
 
   return (
@@ -46,6 +48,7 @@ function MainContent() {
           {activeTab === 'team' && <TeamPanel />}
           {activeTab === 'preview' && <PreviewPanel />}
           {activeTab === 'console' && <ConsolePanel />}
+          {activeTab === 'settings' && <SettingsPanel />}
         </div>
       </main>
     </div>

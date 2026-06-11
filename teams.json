@@ -1,0 +1,24 @@
+[
+    {
+      "name": "Desarrollo de Software",
+      "description": "Equipo encargado de diseñar, construir y mantener aplicaciones.",
+      "agents": [
+        "Director Ia",
+        "Code Generator",
+        "Frontend Designer",
+        "Qa Auditor",
+        "Repair Agent",
+        "Dependency Manager"
+      ]
+    },
+    {
+      "name": "Marketing Digital",
+      "description": "Equipo para estrategias de contenido y análisis de mercado.",
+      "agents": []
+    },
+    {
+      "name": "Trading Bot",
+      "description": "Equipo enfocado en algoritmos financieros.",
+      "agents": []
+    }
+  ]

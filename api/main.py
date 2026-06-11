@@ -4,12 +4,14 @@ asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from fastapi import FastAPI, Query, HTTPException, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import tempfile
 import os
 import subprocess
 import sys
 import json as json_module
+import shutil
 from typing import Optional
 from pathlib import Path
 
@@ -22,6 +24,7 @@ from core.meta_agent import MetaAgent
 from core.sandbox import apply_improvement_safe
 from core.project_manager import ProjectManager
 from core.quality_metrics import analyze_quality
+from core.config_assistant import ConfigAssistant
 
 app = FastAPI()
 
@@ -35,6 +38,33 @@ app.add_middleware(
 
 project_manager = ProjectManager()
 improvement_queue = ImprovementQueue()
+config_assistant = ConfigAssistant()
+
+SETTINGS_PATH = Path("settings.json")
+
+def load_settings() -> dict:
+    if not SETTINGS_PATH.exists():
+        default_settings = {
+            "models": {
+                "primary": "gratuito-fallback",
+                "temperature": 0.0,
+                "max_tokens": 4096
+            },
+            "agents": {},
+            "teams": []
+        }
+        save_settings(default_settings)
+        return default_settings
+    try:
+        return json_module.loads(SETTINGS_PATH.read_text(encoding='utf-8'))
+    except:
+        return {}
+
+def save_settings(settings: dict):
+    backup_path = SETTINGS_PATH.with_suffix('.json.bak')
+    if SETTINGS_PATH.exists():
+        shutil.copy2(SETTINGS_PATH, backup_path)
+    SETTINGS_PATH.write_text(json_module.dumps(settings, indent=2), encoding='utf-8')
 
 class ChatMessage(BaseModel):
     role: str
@@ -50,6 +80,59 @@ class ImprovementProposal(BaseModel):
     target_file: str
     suggested_code: Optional[str] = ""
     reason: Optional[str] = ""
+
+# ─── CONFIGURACIÓN DEL SISTEMA ───
+@app.get("/api/settings")
+def get_settings():
+    settings = load_settings()
+    from core.agent_scanner import ComponentScanner
+    scanner = ComponentScanner()
+    settings["available_agents"] = scanner.scan_agents()
+    settings["available_tools"] = scanner.scan_tools()
+    return settings
+
+@app.put("/api/settings")
+def update_settings(settings: dict):
+    current = load_settings()
+    for section in ["models", "agents", "teams"]:
+        if section in settings:
+            current[section] = settings[section]
+    save_settings(current)
+    return {"status": "ok", "message": "Configuración guardada. Reinicia los agentes si es necesario."}
+
+# ─── ASISTENTE DE CONFIGURACIÓN GUIADA ───
+@app.get("/api/project-types")
+def get_project_types():
+    types = config_assistant.get_project_types()
+    return {"types": types}
+
+@app.get("/api/project-questions/{project_type}")
+def get_project_questions(project_type: str):
+    questions = config_assistant.get_questions(project_type)
+    if not questions:
+        raise HTTPException(status_code=404, detail="Tipo de proyecto no encontrado")
+    return {"questions": questions}
+
+@app.post("/api/create-guided-project")
+def create_guided_project(data: dict):
+    project_type = data.get("project_type")
+    answers = data.get("answers", {})
+    
+    if not project_type:
+        raise HTTPException(status_code=400, detail="Tipo de proyecto requerido")
+    
+    prompt = config_assistant.build_prompt(project_type, answers)
+    project_path = project_manager.create_project()
+    final_project_id = project_path.name
+    
+    orchestrator = AutonomousArchitectOrchestrator(workspace_path=str(project_path))
+    orchestrator.orchestrate_project(prompt)
+    
+    return {
+        "project_id": final_project_id,
+        "prompt": prompt,
+        "message": "Proyecto creado exitosamente"
+    }
 
 @app.get("/dashboard")
 def dashboard():
@@ -397,69 +480,9 @@ def get_project_name(project_id: str):
 
 @app.get("/api/agents")
 def get_agents_info():
-    agents = [
-        {
-            "name": "Director IA",
-            "role": "Arquitecto de Software",
-            "emoji": "🧠",
-            "status": "idle",
-            "tools": ["Read File", "Run Terminal", "save_memory", "search_memory"],
-            "description": "Planifica la arquitectura del proyecto y coordina a los demás agentes."
-        },
-        {
-            "name": "Code Generator",
-            "role": "Desarrollador Backend",
-            "emoji": "💻",
-            "status": "idle",
-            "tools": ["Write File", "Read File"],
-            "description": "Genera código Python limpio y funcional siguiendo las mejores prácticas."
-        },
-        {
-            "name": "Frontend Designer",
-            "role": "Diseñador Frontend",
-            "emoji": "🎨",
-            "status": "idle",
-            "tools": ["Write File", "Read File"],
-            "description": "Crea interfaces modernas con React y Tailwind CSS."
-        },
-        {
-            "name": "QA Auditor",
-            "role": "Ingeniero de Calidad",
-            "emoji": "🔍",
-            "status": "idle",
-            "tools": ["Read File", "Run Terminal"],
-            "description": "Revisa el código en busca de errores, vulnerabilidades y malas prácticas."
-        },
-        {
-            "name": "Repair Agent",
-            "role": "Ingeniero de Depuración",
-            "emoji": "🔧",
-            "status": "idle",
-            "tools": [],
-            "description": "Corrige bugs y problemas de código automáticamente."
-        }
-    ]
-    
-    tools = [
-        {"name": "Read File", "description": "Lee el contenido de cualquier archivo del proyecto."},
-        {"name": "Write File", "description": "Escribe o sobrescribe archivos con nuevo contenido."},
-        {"name": "Run Terminal", "description": "Ejecuta comandos en la terminal del sistema."},
-        {"name": "save_memory", "description": "Guarda información en la memoria vectorial del ecosistema."},
-        {"name": "search_memory", "description": "Busca información semántica en la memoria vectorial."}
-    ]
-    
-    core_modules = [
-        {"name": "architect_orchestrator", "description": "Orquesta todo el flujo de generación y reparación."},
-        {"name": "architecture_memory", "description": "Mantiene el grafo de dependencias del proyecto."},
-        {"name": "executor", "description": "Ejecuta el proyecto generado y captura la salida."},
-        {"name": "refactor_engine", "description": "Analiza y sugiere refactorizaciones estáticas."},
-        {"name": "meta_agent", "description": "Genera propuestas de mejora automáticas."},
-        {"name": "improvement_queue", "description": "Cola de mejoras pendientes, aprobadas y aplicadas."},
-        {"name": "project_manager", "description": "Gestiona la creación y listado de proyectos."},
-        {"name": "sandbox", "description": "Aplica cambios de código de forma segura con backup."}
-    ]
-    
-    return {"agents": agents, "tools": tools, "core_modules": core_modules}
+    from core.agent_scanner import ComponentScanner
+    scanner = ComponentScanner()
+    return scanner.get_full_data()
 
 @app.post("/system/cleanup-improvements")
 def cleanup_improvements():

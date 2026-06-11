@@ -1,46 +1,47 @@
 import { useState, useEffect } from 'react'
 import api from '../api/axios'
 import { useProject } from '../context/ProjectContext'
+import GuidedProjectCreator from './GuidedProjectCreator'
 
 export default function ProjectList() {
   const [projects, setProjects] = useState([])
+  const [showGuided, setShowGuided] = useState(false)
   const { setActiveProjectId } = useProject()
 
   const load = async () => {
     const res = await api.get('/projects')
-    const ids = res.data.projects || []
-    const enriched = await Promise.all(ids.map(async (id) => {
-      try {
-        const nameRes = await api.get(`/projects/${id}/name`)
-        return { id, name: nameRes.data.name || id }
-      } catch {
-        return { id, name: id }
-      }
-    }))
-    setProjects(enriched)
+    setProjects(res.data.projects || [])
   }
 
   useEffect(() => { load() }, [])
 
-  const handleRename = async (id, currentName) => {
-    const newName = prompt('Nuevo nombre para el proyecto:', currentName)
-    if (newName && newName.trim()) {
-      await api.put(`/projects/${id}/name`, { name: newName.trim() })
-      setProjects(prev => prev.map(p => p.id === id ? { ...p, name: newName.trim() } : p))
-    }
+  const handleProjectCreated = (projectId) => {
+    setActiveProjectId(projectId)
+    load()
   }
 
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-100">Proyectos generados</h2>
-        <button onClick={load} className="text-blue-400 hover:text-blue-300 text-sm font-medium transition">Refrescar</button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowGuided(true)}
+            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white px-4 py-2 rounded-xl text-sm font-medium transition shadow-lg"
+          >
+            ✨ Nuevo Proyecto Guiado
+          </button>
+          <button onClick={load} className="text-blue-400 hover:text-blue-300 text-sm font-medium transition">
+            Refrescar
+          </button>
+        </div>
       </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         {projects.length === 0 && (
           <div className="col-span-full text-center text-gray-500 py-20">
             <p className="text-lg">Todavía no hay proyectos.</p>
-            <p className="text-sm">Usá el Chat para crear el primero.</p>
+            <p className="text-sm">Usá el Chat o el <b>Nuevo Proyecto Guiado</b> para crear el primero.</p>
           </div>
         )}
         {projects.map(p => (
@@ -53,21 +54,22 @@ export default function ProjectList() {
                 <div className="font-medium text-gray-200 truncate">{p.name}</div>
                 <div className="text-xs text-gray-500 font-mono">{p.id}</div>
               </div>
-              <button onClick={() => handleRename(p.id, p.name)} className="text-gray-500 hover:text-blue-400 transition">
-                ✏️
-              </button>
             </div>
             <div className="flex gap-3 mt-auto">
               <button onClick={() => setActiveProjectId(p.id)} className="flex-1 bg-blue-600/20 text-blue-300 border border-blue-500/30 hover:bg-blue-600/30 text-sm py-2.5 rounded-xl font-medium transition">
                 Abrir
               </button>
-              <button onClick={() => setActiveProjectId(p.id)} className="flex-1 bg-cyan-600/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-600/30 text-sm py-2.5 rounded-xl font-medium transition">
-                Ejecutar
-              </button>
             </div>
           </div>
         ))}
       </div>
+
+      {showGuided && (
+        <GuidedProjectCreator
+          onClose={() => setShowGuided(false)}
+          onProjectCreated={handleProjectCreated}
+        />
+      )}
     </div>
   )
 }

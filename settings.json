@@ -1,0 +1,79 @@
+{
+  "models": {
+    "primary": "gratuito-fallback",
+    "fallbacks": [
+      "gratuito-fallback"
+    ],
+    "temperature": 0,
+    "max_tokens": 4096
+  },
+  "agents": {
+    "Director Ia": {
+      "enabled": true,
+      "backstory": "Eres un arquitecto de software y planner aut\u00f3nomo...",
+      "tools": [
+        "Read File",
+        "Run Terminal",
+        "save_memory",
+        "search_memory"
+      ]
+    },
+    "Code Generator": {
+      "enabled": true,
+      "backstory": "You are a pure code generation engine...",
+      "tools": [
+        "Write File",
+        "Read File"
+      ]
+    },
+    "Frontend Designer": {
+      "enabled": true,
+      "backstory": "Especialista frontend experto en React, Tailwind...",
+      "tools": [
+        "Write File",
+        "Read File"
+      ]
+    },
+    "Qa Auditor": {
+      "enabled": true,
+      "backstory": "Especialista senior en debugging, QA, seguridad...",
+      "tools": [
+        "Read File",
+        "Run Terminal"
+      ]
+    },
+    "Repair Agent": {
+      "enabled": true,
+      "backstory": "You are an elite autonomous debugging engineer...",
+      "tools": []
+    },
+    "Dependency Manager": {
+      "enabled": true,
+      "backstory": "You are an expert in Python and JavaScript dependencies...",
+      "tools": [
+        "Read File",
+        "Write File"
+      ]
+    }
+  },
+  "teams": [
+    {
+      "name": "Desarrollo de Software",
+      "description": "Equipo encargado de dise\u00f1ar, construir y mantener aplicaciones.",
+      "agents": [
+        "Director Ia",
+        "Code Generator",
+        "Frontend Designer",
+        "Qa Auditor",
+        "Repair Agent",
+        "Dependency Manager",
+        "Backend",
+        "Director",
+        "Qa",
+        "Dependency",
+        "Frontend",
+        "Repair"
+      ]
+    }
+  ]
+}

@@ -1,25 +1,23 @@
-import React, { useState } from 'react';
-import { Terminal } from 'lucide-react';
-import api from '../api/axios';
-export default function ConsolePanel({ project }) {
-  const [output, setOutput] = useState('Ready...');
+import { useState } from 'react'
+import api from '../api/axios'
+import { useProject } from '../context/ProjectContext'
+
+export default function ConsolePanel() {
+  const { activeProjectId } = useProject()
+  const [output, setOutput] = useState('')
+
   const execute = async () => {
-    try {
-      const { data } = await api.post(`/projects/${project.id}/execute`);
-      setOutput(data.output);
-    } catch (err) {
-      setOutput(`Error: ${err.response?.data?.detail || 'Execution failed'}`);
-    }
-  };
+    if (!activeProjectId) return
+    setOutput('Ejecutando...')
+    const res = await api.post(`/projects/${activeProjectId}/execute`)
+    const data = res.data
+    setOutput(data.stdout || data.stderr || 'Sin salida')
+  }
+
   return (
-    <div className="h-48 border-t border-brand-border bg-black text-green-400 font-mono text-xs p-3 flex flex-col">
-      <div className="flex justify-between items-center mb-2 text-slate-500">
-        <div className="flex items-center gap-2"><Terminal size={12} /> Console</div>
-        <button onClick={execute} className="text-[10px] bg-slate-800 px-2 py-1 rounded hover:bg-slate-700">Run Project</button>
-      </div>
-      <div className="flex-1 overflow-y-auto custom-scrollbar whitespace-pre-wrap">
-        {output}
-      </div>
+    <div className="p-4 flex flex-col h-full">
+      <button onClick={execute} className="self-start bg-green-600 text-white px-4 py-2 rounded-lg mb-4">Ejecutar proyecto</button>
+      <pre className="flex-1 bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto font-mono text-sm">{output || 'Presioná Ejecutar para ver la salida.'}</pre>
     </div>
-  );
+  )
 }

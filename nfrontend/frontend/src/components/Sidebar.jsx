@@ -1,54 +1,34 @@
-import React, { useState, useEffect } from 'react';
-import { Folder, FileText, Plus, ChevronDown } from 'lucide-react';
-import api from '../api/axios';
-export default function Sidebar({ onSelectProject, activeProject, onSelectFile, selectedFile }) {
-  const [files, setFiles] = useState([]);
-  useEffect(() => {
-    if (activeProject) {
-      loadFiles();
-    } else {
-      setFiles([]);
-    }
-  }, [activeProject]);
+import { useState, useEffect } from 'react'
+import api from '../api/axios'
+import { useProject } from '../context/ProjectContext'
+
+export default function Sidebar() {
+  const { activeProjectId, setActiveProjectId } = useProject()
+  const [files, setFiles] = useState([])
+
   const loadFiles = async () => {
-    try {
-      const { data } = await api.get(`/projects/${activeProject.id}/files`);
-      setFiles(data);
-    } catch (err) {
-      console.error("Error loading files", err);
-    }
-  };
+    if (!activeProjectId) return
+    const res = await api.get(`/projects/${activeProjectId}/files`)
+    setFiles(res.data.files || [])
+  }
+
+  useEffect(() => { loadFiles() }, [activeProjectId])
+
   return (
-    <aside className="w-64 border-r border-brand-border bg-brand-surface flex flex-col">
-      <div className="p-4 flex justify-between items-center">
-        <span className="text-xs font-semibold uppercase text-slate-500">Explorer</span>
-        <button className="p-1 hover:bg-brand-border rounded"><Plus size={14} /></button>
+    <aside className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col text-sm">
+      <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+        <span className="font-medium">Archivos</span>
+        <button onClick={() => setActiveProjectId(null)} className="text-gray-400 hover:text-red-500">
+          ✕
+        </button>
       </div>
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {activeProject ? (
-          <div className="px-2">
-            <div className="flex items-center gap-2 p-2 text-sm font-medium cursor-pointer">
-              <ChevronDown size={14} />
-              <Folder size={14} className="text-yellow-500" />
-              <span>{activeProject.name}</span>
-            </div>
-            <div className="ml-4 mt-1 space-y-1">
-              {files.map(file => (
-                <div 
-                  key={file.id} 
-                  onClick={() => onSelectFile(file)}
-                  className={`flex items-center gap-2 p-2 text-sm cursor-pointer rounded hover:bg-brand-border transition ${selectedFile?.id === file.id ? 'bg-brand-border text-brand-accent' : ''}`}
-                >
-                  <FileText size={14} />
-                  <span className="truncate">{file.filename}</span>
-                </div>
-              ))}
-            </div>
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {files.map(f => (
+          <div key={f} className="hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded cursor-pointer truncate">
+            📄 {f}
           </div>
-        ) : (
-          <div className="p-4 text-xs text-slate-500 italic">Select a project to view files</div>
-        )}
+        ))}
       </div>
     </aside>
-  );
+  )
 }

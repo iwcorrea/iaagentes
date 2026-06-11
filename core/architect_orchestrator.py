@@ -16,8 +16,10 @@ from core.agents.registry import AgentRegistry
 from core.simulated_agents import CodeAgent
 from core.improvement_queue import ImprovementQueue
 from core.meta_agent import MetaAgent
+from core.plan_validator import PlanValidator
 from workflows.ecommerce_workflow import run_ecommerce_workflow
 from agents.repair_agent import repair_agent
+from agents.dependency_agent import dependency_agent
 
 CREWAI_AVAILABLE = True
 
@@ -28,6 +30,7 @@ class AutonomousArchitectOrchestrator:
         self.memory = ArchitectureMemory(root_path=str(Path(workspace_path) / "backend"))
         self.context = GlobalContext()
         self.refactor = RefactorEngine(self.memory)
+        self.plan_validator = PlanValidator()
 
         self.agent_registry = AgentRegistry()
         code_agent = CodeAgent(memory=self.memory)
@@ -36,20 +39,37 @@ class AutonomousArchitectOrchestrator:
         self.crew_available = CREWAI_AVAILABLE
         self.improvement_queue = ImprovementQueue()
 
-    def orchestrate_project(self, user_prompt: str, is_modification: bool = False) -> str:
+    def orchestrate_project(
+        self,
+        user_prompt: str,
+        is_modification: bool = False,
+        scope: str = "all",
+        mode: str = "full"
+    ) -> str:
+        """
+        Orquesta la generación o modificación de un proyecto.
+        
+        Args:
+            user_prompt: El prompt del usuario.
+            is_modification: Si se debe modificar un proyecto existente.
+            scope: Ámbito de la modificación: 'backend', 'frontend' o 'all'.
+            mode: Modo de contexto: 'full' (código completo) o 'light' (solo estructura).
+        """
         crew_code = ""
         qa_report = ""
         final_project_id = Path(self.workspace_path).name
 
+        # Cargar contexto según ámbito y modo
         project_context = ""
         if is_modification:
-            project_context = self._load_project_context()
+            project_context = self._load_project_context_scoped(scope, mode)
+            print(f"[ARCHITECT] Modo modificación activado. Scope: {scope}, Mode: {mode}.")
 
-        # ─── FASE 1: GENERACIÓN CON TODO EL CREW ───
+        # ─── FASE 1: GENERACIÓN ───
         if self.crew_available:
-            print(f"[ARCHITECT] Fase 1: Usando el flujo completo de agentes CrewAI. (Modo: {'modificación' if is_modification else 'creación'})")
+            print(f"[ARCHITECT] Fase 1: Usando el flujo completo de agentes CrewAI.")
             try:
-                crew_code, qa_report = run_ecommerce_workflow(user_prompt, project_context)
+                crew_code, qa_report = run_ecommerce_workflow(user_prompt, project_context, is_modification)
                 if not crew_code or crew_code.isspace():
                     raise ValueError("El flujo CrewAI no generó código.")
                 print("[ARCHITECT] Generación de código completada.")
@@ -65,7 +85,6 @@ class AutonomousArchitectOrchestrator:
         # ─── FASE 2: ESCRITURA DE ARCHIVOS ───
         execution_summary = execute_plan(crew_code, workspace_base=Path(self.workspace_path))
 
-        # Guardar project.json si no fue generado por el backend agent
         project_json_path = Path(self.workspace_path) / "project.json"
         if not project_json_path.exists():
             project_json_path.write_text(json.dumps({
@@ -75,9 +94,16 @@ class AutonomousArchitectOrchestrator:
 
         self._save_project_context()
 
+        # ─── FASE 2.5: GESTIÓN DE DEPENDENCIAS ───
+        print("[ARCHITECT] Verificando dependencias...")
+        try:
+            self._ensure_dependencies()
+        except Exception as e:
+            print(f"[ARCHITECT] Error al asegurar dependencias: {e}")
+
         # ─── FASE 3: REPARACIÓN AUTOMÁTICA ITERATIVA ───
         if qa_report and "No se ejecutó QA" not in qa_report and self.crew_available:
-            for iteration in range(2):
+            for iteration in range(3):
                 print(f"[ARCHITECT] Fase 3 (iteración {iteration+1}): Reparando código basado en QA...")
                 try:
                     repair_prompt = f"""
@@ -94,11 +120,7 @@ CÓDIGO ORIGINAL:
                     repaired_code = repair_agent.kickoff(repair_prompt)
 
                     if repaired_code and not str(repaired_code).isspace():
-                        if hasattr(repaired_code, 'raw'):
-                            repaired_text = repaired_code.raw
-                        else:
-                            repaired_text = str(repaired_code)
-
+                        repaired_text = repaired_code.raw if hasattr(repaired_code, 'raw') else str(repaired_code)
                         if repaired_text and not repaired_text.isspace():
                             print("[ARCHITECT] Código reparado recibido. Sobrescribiendo archivos...")
                             execute_plan(repaired_text, workspace_base=Path(self.workspace_path))
@@ -109,19 +131,16 @@ CÓDIGO ORIGINAL:
                                     f"Revisa el siguiente código y genera un informe de auditoría:\n\n{repaired_text}"
                                 )
                                 if qa_response and not str(qa_response).isspace():
-                                    if hasattr(qa_response, 'raw'):
-                                        qa_report = qa_response.raw
-                                    else:
-                                        qa_report = str(qa_response)
+                                    qa_report = qa_response.raw if hasattr(qa_response, 'raw') else str(qa_response)
                                     print("[ARCHITECT] QA actualizado tras reparación.")
                             except Exception as qa_err:
-                                print(f"[ARCHITECT] Error al re-ejecutar QA (no crítico): {qa_err}")
+                                print(f"[ARCHITECT] Error al re-ejecutar QA: {qa_err}")
 
                             if "error" not in qa_report.lower() and "vulnerabilidad" not in qa_report.lower():
                                 print("[ARCHITECT] QA limpio. Reparación iterativa completada.")
                                 break
                 except Exception as e:
-                    print(f"[ARCHITECT] Error en reparación iterativa (no crítico): {e}")
+                    print(f"[ARCHITECT] Error en reparación iterativa: {e}")
 
         # ─── FASE 4: ANÁLISIS Y EJECUCIÓN ───
         try:
@@ -133,10 +152,9 @@ CÓDIGO ORIGINAL:
                 print(f"[ARCHITECT] {len(initial_issues)} problemas encontrados. Reparando...")
                 fix_log_static = self.memory.fix_imports_globally()
 
-            print("[ARCHITECT] Ejecutando motor de refactorización (extendido)...")
+            print("[ARCHITECT] Ejecutando motor de refactorización...")
             refactor_log = self.refactor.analyze_and_fix(extended=True)
             if refactor_log:
-                print(f"[ARCHITECT] {len(refactor_log)} mejoras sugeridas/aplicadas.")
                 self.memory.scan_project()
 
             print("[ARCHITECT] Ejecutando proyecto...")
@@ -151,66 +169,116 @@ CÓDIGO ORIGINAL:
                 proposal_ids = meta.analyze_and_propose(project_root=".")
                 meta_proposals = len(proposal_ids)
                 if meta_proposals > 0:
-                    print(f"[ARCHITECT] MetaAgent generó {meta_proposals} propuestas de mejora.")
+                    print(f"[ARCHITECT] MetaAgent generó {meta_proposals} propuestas.")
             except Exception as e:
-                print(f"[ARCHITECT] MetaAgent error (no crítico): {e}")
+                print(f"[ARCHITECT] MetaAgent error: {e}")
 
+            context_summary = {"models": "N/A", "routes": "N/A", "entities": "N/A"}
             try:
                 context_summary = self.context.summary()
-            except Exception:
-                context_summary = {"models": "N/A", "routes": "N/A", "entities": "N/A"}
+            except:
+                pass
 
             final_issues = self.memory.validate()
             success = execution_result.get('success', False)
             status = "✅ SALUDABLE" if success and not final_issues else "⚠️ REQUIERE ATENCIÓN"
             status += " (Ejecución exitosa)" if success else " (Falló la ejecución)"
 
-            static_repairs = "\n".join([f"  - {r.get('action','')} en {r.get('file','')}" for r in fix_log_static]) or "Ninguna"
-            runtime_repairs = "\n".join([f"  - {r.get('action','')} en {r.get('file','')}" for r in runtime_fix_log]) or "Ninguna"
-            refactor_summary = "\n".join([f"  - {r.get('rule','')}: {r.get('file','')} ({r.get('suggestion','')})" for r in refactor_log]) or "Ninguna"
-
             report = "==================================================\n"
             report += "🧠 AUTONOMOUS SOFTWARE ARCHITECT REPORT\n"
             report += "==================================================\n"
-            report += "ESTADO: " + str(status) + "\n\n"
-            report += "1. REPARACIONES ESTÁTICAS:\n" + str(static_repairs) + "\n\n"
-            report += "2. REFACTORIZACIONES APLICADAS:\n" + str(refactor_summary) + "\n\n"
+            report += "ESTADO: " + status + "\n\n"
+            report += "1. REPARACIONES ESTÁTICAS:\n" + "\n".join(
+                [f"  - {r.get('action','')} en {r.get('file','')}" for r in fix_log_static]
+            ) or "Ninguna" + "\n\n"
+            report += "2. REFACTORIZACIONES:\n" + "\n".join(
+                [f"  - {r.get('rule','')}: {r.get('file','')}" for r in refactor_log]
+            ) or "Ninguna" + "\n\n"
             report += "3. EJECUCIÓN:\n"
-            report += "   - Tipo: " + str(execution_result.get('execution_type', 'desconocido')) + "\n"
-            report += "   - Éxito: " + str(success) + "\n"
-            report += "   - Salida: " + str(execution_result.get('stdout', ''))[:200] + "\n"
-            report += "   - Error: " + str(execution_result.get('stderr', ''))[:200] + "\n\n"
-            report += "4. REPARACIONES EN RUNTIME:\n" + str(runtime_repairs) + "\n\n"
-            report += "5. PROBLEMAS RESTANTES: " + str(len(final_issues) if final_issues else '0') + "\n\n"
+            report += f"   - Tipo: {execution_result.get('execution_type', 'desconocido')}\n"
+            report += f"   - Éxito: {success}\n"
+            report += f"   - Salida: {execution_result.get('stdout', '')[:200]}\n"
+            report += f"   - Error: {execution_result.get('stderr', '')[:200]}\n\n"
+            report += "4. RUNTIME:\n" + "\n".join(
+                [f"  - {r.get('action','')} en {r.get('file','')}" for r in runtime_fix_log]
+            ) or "Ninguna" + "\n\n"
+            report += f"5. PROBLEMAS RESTANTES: {len(final_issues) if final_issues else 0}\n\n"
             report += "6. CONTEXTO GLOBAL:\n"
-            report += "   - Modelos: " + str(context_summary.get('models', '')) + "\n"
-            report += "   - Rutas: " + str(context_summary.get('routes', '')) + "\n"
-            report += "   - Entidades: " + str(context_summary.get('entities', '')) + "\n\n"
+            report += f"   - Modelos: {context_summary.get('models', '')}\n"
+            report += f"   - Rutas: {context_summary.get('routes', '')}\n"
+            report += f"   - Entidades: {context_summary.get('entities', '')}\n\n"
             report += "7. INFORME DE QA:\n" + qa_report[:500] + "\n"
 
             return report
-
         except Exception as e:
-            error_report = "==================================================\n"
-            error_report += "🧠 AUTONOMOUS SOFTWARE ARCHITECT REPORT (ERROR)\n"
-            error_report += "==================================================\n"
-            error_report += f"❌ Error en fase de ejecución/reparación: {str(e)}\n\n"
-            error_report += traceback.format_exc()
-            return error_report
+            return "ERROR:\n" + traceback.format_exc()
 
-    def _load_project_context(self) -> str:
-        context_path = Path(self.workspace_path) / "project_context.json"
-        if context_path.exists():
-            try:
-                data = json.loads(context_path.read_text(encoding='utf-8'))
-                return json.dumps(data, indent=2)
-            except:
-                pass
-        files = []
-        for f in Path(self.workspace_path).rglob("*"):
-            if f.is_file() and f.name != "project_context.json" and f.name != "chat.json":
-                files.append(str(f.relative_to(self.workspace_path)))
-        return "Archivos existentes:\n" + "\n".join(files)
+    def _load_project_context_scoped(self, scope: str, mode: str) -> str:
+        """
+        Carga el contexto según el ámbito (backend/frontend/all) y el modo (light/full).
+        """
+        project_path = Path(self.workspace_path)
+        if not project_path.exists():
+            return ""
+
+        lines = []
+        for f in project_path.rglob("*"):
+            if f.is_file() and f.name not in ["project_context.json", "chat.json", "project.json"]:
+                rel = str(f.relative_to(project_path))
+
+                # Filtrar por ámbito
+                if scope == "backend" and not rel.startswith("backend"):
+                    continue
+                if scope == "frontend" and not rel.startswith("frontend"):
+                    continue
+
+                if mode == "light":
+                    lines.append(f"- {rel}")
+                else:
+                    try:
+                        content = f.read_text(encoding='utf-8')[:1000]
+                        lines.append(f"=== {rel} ===\n{content}")
+                    except:
+                        lines.append(f"=== {rel} ===\n[binario]")
+
+        return "\n".join(lines)
+
+    def _ensure_dependencies(self):
+        backend_path = Path(self.workspace_path) / "backend"
+        frontend_path = Path(self.workspace_path) / "frontend"
+
+        if backend_path.exists():
+            req_file = backend_path / "requirements.txt"
+            if not req_file.exists() or len(req_file.read_text(encoding='utf-8').strip()) < 20:
+                self._fix_dependencies(backend_path, "backend")
+
+        if frontend_path.exists():
+            pkg_file = frontend_path / "package.json"
+            if not pkg_file.exists() or len(pkg_file.read_text(encoding='utf-8').strip()) < 20:
+                self._fix_dependencies(frontend_path, "frontend")
+
+    def _fix_dependencies(self, base_path: Path, project_type: str):
+        code_files = []
+        for ext in ['.py', '.jsx', '.js']:
+            for f in base_path.rglob(f'*{ext}'):
+                if f.name not in ["requirements.txt", "package.json"]:
+                    code_files.append(str(f.relative_to(base_path)))
+        if not code_files:
+            return
+
+        prompt = f"""
+Genera o repara los archivos de dependencias para el siguiente {project_type}:
+Archivos existentes: {', '.join(code_files[:10])}
+Entrega usando el formato path:::code.
+"""
+        try:
+            response = dependency_agent.kickoff(prompt)
+            if response:
+                dep_code = response.raw if hasattr(response, 'raw') else str(response)
+                if dep_code:
+                    execute_plan(dep_code, workspace_base=Path(self.workspace_path))
+        except Exception as e:
+            print(f"[ARCHITECT] Error generando dependencias: {e}")
 
     def _save_project_context(self):
         context_path = Path(self.workspace_path) / "project_context.json"
@@ -223,19 +291,15 @@ CÓDIGO ORIGINAL:
                         files[rel] = f.read_text(encoding='utf-8')[:500]
                     except:
                         files[rel] = "[binario]"
-            context_path.write_text(json.dumps({
-                "files": list(files.keys()),
-                "structure": {str(k): v for k, v in files.items()}
-            }, indent=2), encoding='utf-8')
+            context_path.write_text(json.dumps({"files": list(files.keys()), "structure": files}, indent=2), encoding='utf-8')
         except Exception as e:
             print(f"[ARCHITECT] Error guardando contexto: {e}")
 
     def _generate_demo_plan(self, prompt):
-        demo_code = (
+        return (
             'backend/main.py:::from fastapi import FastAPI\n'
             'app = FastAPI()\n\n'
             '@app.get("/")\n'
             'def root():\n'
             '    return {"message": "Hello World"}\n'
         )
-        return demo_code

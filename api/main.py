@@ -76,7 +76,12 @@ def list_models():
     }
 
 @app.post("/v1/chat/completions")
-def chat_completions(request: ChatRequest, project_id: Optional[str] = Query(None)):
+def chat_completions(
+    request: ChatRequest,
+    project_id: Optional[str] = Query(None),
+    scope: Optional[str] = Query("all"),
+    mode: Optional[str] = Query("full")
+):
     try:
         user_prompt = request.messages[-1].content
         intent = detect_intent(user_prompt)
@@ -101,7 +106,12 @@ def chat_completions(request: ChatRequest, project_id: Optional[str] = Query(Non
             final_text = "Terminal execution not implemented yet."
         else:
             orchestrator = AutonomousArchitectOrchestrator(workspace_path=str(project_path))
-            final_text = orchestrator.orchestrate_project(user_prompt, is_modification=is_modification)
+final_text = orchestrator.orchestrate_project(
+    user_prompt,
+    is_modification=is_modification,
+    scope=scope,
+    mode=mode
+)
 
         final_text += f"\n\n🔹 Proyecto ID: {final_project_id}"
         print("FINAL TEXT:", repr(final_text[:300]))

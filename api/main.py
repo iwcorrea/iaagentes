@@ -33,8 +33,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Ya no montamos la carpeta frontend estática
-
 project_manager = ProjectManager()
 improvement_queue = ImprovementQueue()
 
@@ -106,12 +104,12 @@ def chat_completions(
             final_text = "Terminal execution not implemented yet."
         else:
             orchestrator = AutonomousArchitectOrchestrator(workspace_path=str(project_path))
-final_text = orchestrator.orchestrate_project(
-    user_prompt,
-    is_modification=is_modification,
-    scope=scope,
-    mode=mode
-)
+            final_text = orchestrator.orchestrate_project(
+                user_prompt,
+                is_modification=is_modification,
+                scope=scope,
+                mode=mode
+            )
 
         final_text += f"\n\n🔹 Proyecto ID: {final_project_id}"
         print("FINAL TEXT:", repr(final_text[:300]))
@@ -399,9 +397,6 @@ def get_project_name(project_id: str):
 
 @app.get("/api/agents")
 def get_agents_info():
-    """
-    Devuelve la lista de agentes, sus tools, y los módulos core del ecosistema.
-    """
     agents = [
         {
             "name": "Director IA",

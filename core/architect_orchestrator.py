@@ -1,7 +1,8 @@
 import sys
 import traceback
-from pathlib import Path
 import json
+from pathlib import Path
+from datetime import datetime
 
 ROOT_DIR = Path(__file__).parent.parent.resolve()
 if str(ROOT_DIR) not in sys.path:
@@ -38,8 +39,8 @@ class AutonomousArchitectOrchestrator:
     def orchestrate_project(self, user_prompt: str, is_modification: bool = False) -> str:
         crew_code = ""
         qa_report = ""
+        final_project_id = Path(self.workspace_path).name
 
-        # Si es modificación, cargar contexto del proyecto
         project_context = ""
         if is_modification:
             project_context = self._load_project_context()
@@ -64,7 +65,14 @@ class AutonomousArchitectOrchestrator:
         # ─── FASE 2: ESCRITURA DE ARCHIVOS ───
         execution_summary = execute_plan(crew_code, workspace_base=Path(self.workspace_path))
 
-        # Guardar contexto del proyecto para futuras modificaciones
+        # Guardar project.json si no fue generado por el backend agent
+        project_json_path = Path(self.workspace_path) / "project.json"
+        if not project_json_path.exists():
+            project_json_path.write_text(json.dumps({
+                "name": final_project_id,
+                "created": datetime.now().isoformat()
+            }, indent=2), encoding='utf-8')
+
         self._save_project_context()
 
         # ─── FASE 3: REPARACIÓN AUTOMÁTICA ITERATIVA ───
@@ -191,7 +199,6 @@ CÓDIGO ORIGINAL:
             return error_report
 
     def _load_project_context(self) -> str:
-        """Carga el contexto del proyecto existente para pasárselo al Director."""
         context_path = Path(self.workspace_path) / "project_context.json"
         if context_path.exists():
             try:
@@ -199,7 +206,6 @@ CÓDIGO ORIGINAL:
                 return json.dumps(data, indent=2)
             except:
                 pass
-        # Fallback: listar archivos existentes
         files = []
         for f in Path(self.workspace_path).rglob("*"):
             if f.is_file() and f.name != "project_context.json" and f.name != "chat.json":
@@ -207,7 +213,6 @@ CÓDIGO ORIGINAL:
         return "Archivos existentes:\n" + "\n".join(files)
 
     def _save_project_context(self):
-        """Guarda un resumen del proyecto para futuras modificaciones."""
         context_path = Path(self.workspace_path) / "project_context.json"
         try:
             files = {}

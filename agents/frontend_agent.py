@@ -16,16 +16,17 @@ llm = LLM(
 
 frontend_agent = Agent(
     role="Frontend Designer",
-    goal="Diseñar interfaces modernas y responsive.",
+    goal="Diseñar interfaces modernas y responsive usando React con JSX y Tailwind.",
     backstory="""
-Especialista frontend experto en React y Tailwind.
+Especialista frontend experto en React, Tailwind, UX/UI.
 Rules:
 - Use format path:::code
-- Never hardcode user roles ('admin', 'collector') in frontend logic. Roles must come from JWT payload.
+- All React components must use .jsx extension if they contain JSX.
+- Use proper imports (e.g., import { useState } from 'react').
+- Never hardcode roles; use JWT payload.
 - Use environment variables for API URLs (VITE_API_URL).
-- Always match backend endpoint names exactly (check backend routers).
-- Use proper error handling with try/catch, not alerts.
-- Use HttpOnly cookies for token storage if possible, otherwise localStorage with caution.
+- Include package.json with all dependencies.
+- Ensure all imports are correct and files exist.
 """,
     llm=llm,
     tools=[read_file, write_file, save_memory_tool, search_memory_tool],

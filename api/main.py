@@ -4,7 +4,6 @@ asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from fastapi import FastAPI, Query, HTTPException, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response, JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import tempfile
 import os
@@ -34,7 +33,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="frontend"), name="static")
+# Ya no montamos la carpeta frontend estática
 
 project_manager = ProjectManager()
 improvement_queue = ImprovementQueue()
@@ -54,10 +53,9 @@ class ImprovementProposal(BaseModel):
     suggested_code: Optional[str] = ""
     reason: Optional[str] = ""
 
-# ─── DASHBOARD CENTRALIZADO ───
 @app.get("/dashboard")
 def dashboard():
-    return FileResponse("frontend/dashboard.html", media_type="text/html")
+    return {"message": "Usa el nuevo frontend React en nfrontend/frontend"}
 
 @app.get("/")
 def root():
@@ -106,7 +104,6 @@ def chat_completions(request: ChatRequest, project_id: Optional[str] = Query(Non
             final_text = orchestrator.orchestrate_project(user_prompt, is_modification=is_modification)
 
         final_text += f"\n\n🔹 Proyecto ID: {final_project_id}"
-
         print("FINAL TEXT:", repr(final_text[:300]))
 
         return {
@@ -260,7 +257,6 @@ def run_meta_agent(project_id: Optional[str] = Query(None)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error MetaAgent: {str(e)}")
 
-# Métricas de calidad
 @app.get("/system/metrics")
 def get_quality_metrics(project_id: Optional[str] = Query(None)):
     try:
@@ -277,12 +273,10 @@ def get_quality_metrics(project_id: Optional[str] = Query(None)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error obteniendo métricas: {str(e)}")
 
-# Listar proyectos
 @app.get("/projects")
 def list_projects():
     return {"projects": project_manager.list_projects()}
 
-# ─── EXPLORADOR DE ARCHIVOS ───
 @app.get("/projects/{project_id}/files")
 def list_project_files(project_id: str):
     project_path = project_manager.get_project_path(project_id)
@@ -315,14 +309,12 @@ def update_project_file(project_id: str, path: str = Query(...), content: str = 
     file_path.write_text(content, encoding='utf-8')
     return {"status": "ok", "message": "Archivo actualizado"}
 
-# ─── EJECUCIÓN DE PROYECTO (CON INSTALACIÓN AUTOMÁTICA) ───
 @app.post("/projects/{project_id}/execute")
 def execute_project_endpoint(project_id: str):
     project_path = project_manager.get_project_path(project_id)
     if not project_path:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
-    # 1. Instalar dependencias si existe requirements.txt
     req_file = project_path / "backend" / "requirements.txt"
     if not req_file.exists():
         req_file = project_path / "requirements.txt"
@@ -341,7 +333,6 @@ def execute_project_endpoint(project_id: str):
                 "execution_type": "desconocido"
             }
 
-    # 2. Ejecutar el proyecto
     from core.executor import ProjectExecutor
     executor = ProjectExecutor(str(project_path))
     result = executor.execute_project()
@@ -352,7 +343,6 @@ def execute_project_endpoint(project_id: str):
         "execution_type": result.get("execution_type", "desconocido")
     }
 
-# ─── CHAT POR PROYECTO ───
 @app.get("/projects/{project_id}/chat")
 def get_project_chat(project_id: str):
     project_path = project_manager.get_project_path(project_id)
@@ -373,24 +363,6 @@ async def save_project_chat(project_id: str, request: Request):
     chat_path.write_text(json_module.dumps(body, indent=2), encoding='utf-8')
     return {"status": "ok"}
 
-# Limpieza de mejoras huérfanas
-@app.post("/system/cleanup-improvements")
-def cleanup_improvements():
-    proposals = improvement_queue.list_all()
-    removed = 0
-    for p in proposals:
-        target_path = Path(p["target_file"])
-        if not target_path.exists():
-            improvement_queue.reject(p["id"])
-            removed += 1
-    return {"removed": removed}
-
-# Panel de supervisión (respaldo)
-@app.get("/improvements")
-def improvements_panel():
-    return FileResponse("frontend/improvements.html")
-
-# ─── NOMBRE DE PROYECTO ───
 @app.put("/projects/{project_id}/name")
 def update_project_name(project_id: str, name: str = Body(..., embed=True)):
     project_path = project_manager.get_project_path(project_id)
@@ -414,3 +386,87 @@ def get_project_name(project_id: str):
         meta = json_module.loads(meta_path.read_text(encoding='utf-8'))
         return {"name": meta.get("name", project_id)}
     return {"name": project_id}
+
+@app.get("/api/agents")
+def get_agents_info():
+    """
+    Devuelve la lista de agentes, sus tools, y los módulos core del ecosistema.
+    """
+    agents = [
+        {
+            "name": "Director IA",
+            "role": "Arquitecto de Software",
+            "emoji": "🧠",
+            "status": "idle",
+            "tools": ["Read File", "Run Terminal", "save_memory", "search_memory"],
+            "description": "Planifica la arquitectura del proyecto y coordina a los demás agentes."
+        },
+        {
+            "name": "Code Generator",
+            "role": "Desarrollador Backend",
+            "emoji": "💻",
+            "status": "idle",
+            "tools": ["Write File", "Read File"],
+            "description": "Genera código Python limpio y funcional siguiendo las mejores prácticas."
+        },
+        {
+            "name": "Frontend Designer",
+            "role": "Diseñador Frontend",
+            "emoji": "🎨",
+            "status": "idle",
+            "tools": ["Write File", "Read File"],
+            "description": "Crea interfaces modernas con React y Tailwind CSS."
+        },
+        {
+            "name": "QA Auditor",
+            "role": "Ingeniero de Calidad",
+            "emoji": "🔍",
+            "status": "idle",
+            "tools": ["Read File", "Run Terminal"],
+            "description": "Revisa el código en busca de errores, vulnerabilidades y malas prácticas."
+        },
+        {
+            "name": "Repair Agent",
+            "role": "Ingeniero de Depuración",
+            "emoji": "🔧",
+            "status": "idle",
+            "tools": [],
+            "description": "Corrige bugs y problemas de código automáticamente."
+        }
+    ]
+    
+    tools = [
+        {"name": "Read File", "description": "Lee el contenido de cualquier archivo del proyecto."},
+        {"name": "Write File", "description": "Escribe o sobrescribe archivos con nuevo contenido."},
+        {"name": "Run Terminal", "description": "Ejecuta comandos en la terminal del sistema."},
+        {"name": "save_memory", "description": "Guarda información en la memoria vectorial del ecosistema."},
+        {"name": "search_memory", "description": "Busca información semántica en la memoria vectorial."}
+    ]
+    
+    core_modules = [
+        {"name": "architect_orchestrator", "description": "Orquesta todo el flujo de generación y reparación."},
+        {"name": "architecture_memory", "description": "Mantiene el grafo de dependencias del proyecto."},
+        {"name": "executor", "description": "Ejecuta el proyecto generado y captura la salida."},
+        {"name": "refactor_engine", "description": "Analiza y sugiere refactorizaciones estáticas."},
+        {"name": "meta_agent", "description": "Genera propuestas de mejora automáticas."},
+        {"name": "improvement_queue", "description": "Cola de mejoras pendientes, aprobadas y aplicadas."},
+        {"name": "project_manager", "description": "Gestiona la creación y listado de proyectos."},
+        {"name": "sandbox", "description": "Aplica cambios de código de forma segura con backup."}
+    ]
+    
+    return {"agents": agents, "tools": tools, "core_modules": core_modules}
+
+@app.post("/system/cleanup-improvements")
+def cleanup_improvements():
+    proposals = improvement_queue.list_all()
+    removed = 0
+    for p in proposals:
+        target_path = Path(p["target_file"])
+        if not target_path.exists():
+            improvement_queue.reject(p["id"])
+            removed += 1
+    return {"removed": removed}
+
+@app.get("/improvements")
+def improvements_panel():
+    return {"message": "Usa el nuevo panel React"}

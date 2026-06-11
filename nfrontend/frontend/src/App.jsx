@@ -5,6 +5,7 @@ import ChatPanel from './components/ChatPanel'
 import ProjectList from './components/ProjectList'
 import PreviewPanel from './components/PreviewPanel'
 import ConsolePanel from './components/ConsolePanel'
+import TeamPanel from './components/TeamPanel'
 import { ProjectProvider, useProject } from './context/ProjectContext'
 
 function MainContent() {
@@ -14,6 +15,7 @@ function MainContent() {
   const tabs = [
     { id: 'chat', label: 'Chat', icon: '💬' },
     { id: 'projects', label: 'Proyectos', icon: '📁' },
+    { id: 'team', label: 'Equipo', icon: '👥' },
     { id: 'preview', label: 'Vista previa', icon: '👁️' },
     { id: 'console', label: 'Consola', icon: '🖥️' }
   ]
@@ -41,6 +43,7 @@ function MainContent() {
         <div className="flex-1 overflow-y-auto p-4">
           {activeTab === 'chat' && <ChatPanel />}
           {activeTab === 'projects' && <ProjectList />}
+          {activeTab === 'team' && <TeamPanel />}
           {activeTab === 'preview' && <PreviewPanel />}
           {activeTab === 'console' && <ConsolePanel />}
         </div>

@@ -4,7 +4,6 @@ asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from fastapi import FastAPI, Query, HTTPException, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response, JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import tempfile
 import os
@@ -366,7 +365,22 @@ def get_quality_metrics(project_id: Optional[str] = Query(None)):
 
 @app.get("/projects")
 def list_projects():
-    return {"projects": project_manager.list_projects()}
+    project_ids = project_manager.list_projects()
+    projects = []
+    for pid in project_ids:
+        proj_path = project_manager.get_project_path(pid)
+        name = pid
+        if proj_path:
+            meta_file = proj_path / "project.json"
+            if meta_file.exists():
+                try:
+                    meta = json_module.loads(meta_file.read_text(encoding='utf-8'))
+                    if "name" in meta:
+                        name = meta["name"]
+                except:
+                    pass
+        projects.append({"id": pid, "name": name})
+    return {"projects": projects}
 
 @app.get("/projects/{project_id}/files")
 def list_project_files(project_id: str):

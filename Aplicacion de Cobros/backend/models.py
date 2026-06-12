@@ -1,10 +1,29 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
+from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
 from .database import Base
-import datetime
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True)
+    username = Column(String, unique=True, index=True)   # ← agregado
+    full_name = Column(String)
     hashed_password = Column(String)
-    push_token = Column(String, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
+    role = Column(String)  # 'admin' o 'cobrador'
+
+class Client(Base):
+    __tablename__ = "clients"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    phone = Column(String, nullable=True)
+    route = Column(String, nullable=True)
+    daily_quota = Column(Float)
+
+class Payment(Base):
+    __tablename__ = "payments"
+    id = Column(Integer, primary_key=True, index=True)
+    amount = Column(Float)
+    date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    description = Column(String, nullable=True)
+    client_id = Column(Integer, ForeignKey("clients.id"))
+    client = relationship("Client")

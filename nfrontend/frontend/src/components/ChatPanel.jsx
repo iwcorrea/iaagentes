@@ -13,6 +13,15 @@ const AGENT_EMOJIS = {
   'Dependency Manager': '📦'
 }
 
+const AGENT_TASKS = {
+  'Director IA': 'Planificando arquitectura...',
+  'Code Generator': 'Escribiendo backend...',
+  'Frontend Designer': 'Diseñando interfaz...',
+  'QA Auditor': 'Auditando código...',
+  'Repair Agent': 'Reparando errores...',
+  'Dependency Manager': 'Gestionando dependencias...'
+}
+
 export default function ChatPanel() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -22,10 +31,12 @@ export default function ChatPanel() {
   const [turbo, setTurbo] = useState(false)
   const [showGuided, setShowGuided] = useState(false)
   const [agentStatus, setAgentStatus] = useState({})
+  const [progressMessages, setProgressMessages] = useState([])
   const { activeProjectId, projectName, setActiveProjectId } = useProject()
   const bottomRef = useRef(null)
   const { showToast, ToastContainer } = useToast()
 
+  // Polling del estado de los agentes
   useEffect(() => {
     let interval
     if (loading) {
@@ -36,11 +47,28 @@ export default function ChatPanel() {
           const allAgents = teams.flatMap(t => t.agents)
           const statusMap = {}
           allAgents.forEach(a => { statusMap[a.name] = a.status })
-          setAgentStatus(statusMap)
+          setAgentStatus(prev => {
+            // Solo actualizar si cambió algo
+            if (JSON.stringify(prev) === JSON.stringify(statusMap)) return prev
+            // Generar mensajes de progreso
+            const msgs = []
+            Object.entries(statusMap).forEach(([name, status]) => {
+              if (status === 'working') {
+                msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ${AGENT_TASKS[name] || 'Trabajando...'}`)
+              } else if (status === 'done') {
+                msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ✅ Completado`)
+              } else if (status === 'error') {
+                msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ❌ Error`)
+              }
+            })
+            setProgressMessages(msgs)
+            return statusMap
+          })
         } catch {}
       }, 2000)
     } else {
       setAgentStatus({})
+      setProgressMessages([])
     }
     return () => clearInterval(interval)
   }, [loading])
@@ -57,7 +85,7 @@ export default function ChatPanel() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, progressMessages])
 
   const send = useCallback(async () => {
     const text = input.trim()
@@ -69,7 +97,7 @@ export default function ChatPanel() {
     setMessages(prev => [...prev, userMsg])
 
     try {
-      const params = { turbo: turbo }
+      const params = { turbo }
       if (activeProjectId) {
         params.project_id = activeProjectId
         params.scope = scope
@@ -96,6 +124,10 @@ export default function ChatPanel() {
       setLoading(false)
     }
   }, [input, loading, messages, activeProjectId, scope, mode, turbo, showToast, setActiveProjectId])
+
+  const placeholderText = activeProjectId
+    ? `Modificar "${projectName || activeProjectId}"...`
+    : 'Crear un nuevo proyecto...'
 
   return (
     <div className="flex flex-col h-full">
@@ -125,27 +157,21 @@ export default function ChatPanel() {
         ))}
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-gray-800/80 border border-gray-700/50 px-5 py-3 rounded-2xl text-sm text-gray-300">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="bg-gray-800/80 border border-gray-700/50 px-5 py-3 rounded-2xl text-sm text-gray-300 max-w-[80%]">
+              <div className="flex items-center gap-2 mb-3">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
-                <span className="font-medium">Agentes trabajando...</span>
+                <span className="font-medium">Los agentes están trabajando...</span>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                {Object.entries(AGENT_EMOJIS).map(([name, emoji]) => {
-                  const status = agentStatus[name] || 'idle'
-                  return (
-                    <div key={name} className="flex items-center gap-2 text-xs">
-                      <span>{emoji}</span>
-                      <span className="text-gray-400">{name}</span>
-                      <span className={`ml-auto w-2 h-2 rounded-full ${
-                        status === 'working' ? 'bg-yellow-400 animate-pulse' :
-                        status === 'done' ? 'bg-green-400' :
-                        status === 'error' ? 'bg-red-400' : 'bg-gray-600'
-                      }`}></span>
+              {progressMessages.length > 0 && (
+                <div className="space-y-1.5">
+                  {progressMessages.map((msg, i) => (
+                    <div key={i} className="text-xs text-gray-400 flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                      {msg}
                     </div>
-                  )
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -174,7 +200,7 @@ export default function ChatPanel() {
         <div className="flex gap-3">
           <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
             className="flex-1 bg-gray-800 border border-gray-600 rounded-xl px-5 py-3 text-sm text-gray-100 placeholder-gray-500 focus:ring-2 focus:ring-blue-500/50 outline-none"
-            placeholder={activeProjectId ? `Modificar "${projectName || activeProjectId}"...` : 'Crear nuevo proyecto...'} />
+            placeholder={placeholderText} />
           <button onClick={send} disabled={loading}
             className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white px-6 py-3 rounded-xl font-semibold transition disabled:opacity-50">
             {activeProjectId ? 'Modificar' : 'Crear'}

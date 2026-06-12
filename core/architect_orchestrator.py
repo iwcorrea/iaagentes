@@ -84,8 +84,8 @@ class AutonomousArchitectOrchestrator:
                 "created": datetime.now().isoformat()
             }, indent=2), encoding='utf-8')
 
-        # ─── FASE 2.1: VALIDACIÓN DE INTEGRACIÓN ───
-        self._validate_integration()
+        # ─── FASE 2.1: VALIDACIÓN DE INTEGRIDAD EXTENDIDA ───
+        self._validate_integration_extended()
 
         self._save_project_context()
 
@@ -126,8 +126,8 @@ CÓDIGO ORIGINAL:
                             print("[ARCHITECT] Código reparado aplicado.")
                             set_agent_status("Repair Agent", "done")
                             
-                            # Revalidar integración después de reparar
-                            self._validate_integration()
+                            # Revalidar integridad después de reparar
+                            self._validate_integration_extended()
                 except Exception as e:
                     set_agent_status("Repair Agent", "error")
                     print(f"[ARCHITECT] Error en reparación: {e}")
@@ -141,9 +141,10 @@ CÓDIGO ORIGINAL:
             print("[ARCHITECT] Escaneando estructura del proyecto...")
             self.memory.scan_project()
             initial_issues = self.memory.validate()
+            fix_log_static = []
             if initial_issues:
                 print(f"[ARCHITECT] {len(initial_issues)} problemas encontrados. Reparando...")
-                self.memory.fix_imports_globally()
+                fix_log_static = self.memory.fix_imports_globally()
 
             print("[ARCHITECT] Ejecutando motor de refactorización...")
             refactor_log = self.refactor.analyze_and_fix(extended=True)
@@ -212,45 +213,101 @@ CÓDIGO ORIGINAL:
             error_report += traceback.format_exc()
             return error_report
 
-    # ─── VALIDACIÓN DE INTEGRACIÓN ───
-    def _validate_integration(self):
+    # ─── VALIDACIÓN DE INTEGRIDAD EXTENDIDA ───
+    def _validate_integration_extended(self):
         backend_path = Path(self.workspace_path) / "backend"
         if not backend_path.exists():
             return
         
         main_file = backend_path / "main.py"
         if not main_file.exists():
-            print("[ARCHITECT] ⚠️ No se encontró main.py, no se puede validar integración.")
+            print("[ARCHITECT] ⚠️ No se encontró main.py.")
             return
 
         main_content = main_file.read_text(encoding='utf-8')
+        schemas_file = backend_path / "schemas.py"
+        schemas_content = schemas_file.read_text(encoding='utf-8') if schemas_file.exists() else ""
         
-        # Buscar todos los routers declarados en main.py
+        issues = []
+
+        # 1. Validar integración de routers
         import_pattern = r"app\.include_router\((\w+)\.router\)"
         imported_routers = set(re.findall(import_pattern, main_content))
-        
-        # Buscar todos los archivos .py en routers/ o en raíz que parezcan routers (tienen APIRouter)
         existing_routers = set()
         for py_file in backend_path.rglob("*.py"):
-            if py_file.name == "__init__.py" or py_file.name == "main.py":
+            if py_file.name in ["__init__.py", "main.py", "schemas.py", "models.py", "database.py"]:
                 continue
             try:
                 content = py_file.read_text(encoding='utf-8')
-                if "APIRouter" in content and "include_router" not in content:
-                    router_name = py_file.stem
-                    existing_routers.add(router_name)
+                if "APIRouter" in content:
+                    existing_routers.add(py_file.stem)
             except:
                 pass
 
-        missing_integrations = existing_routers - imported_routers
-        if missing_integrations:
-            print(f"[ARCHITECT] ⚠️ Faltan integraciones en main.py: {missing_integrations}")
+        missing = existing_routers - imported_routers
+        if missing:
+            issues.append(f"Routers no integrados en main.py: {', '.join(missing)}")
+
+        # 2. Validar imports de schemas
+        schema_imports_pattern = r"from\s+\.+(?:schemas)?\s+import\s+(.+?)(?:\s|$)"
+        schema_imports_pattern2 = r"import\s+schemas"
+        
+        for py_file in backend_path.rglob("*.py"):
+            if py_file.name == "schemas.py" or py_file.name == "__init__.py":
+                continue
+            try:
+                content = py_file.read_text(encoding='utf-8')
+                # Buscar imports desde schemas
+                matches = re.findall(r"from\s+\.+schemas\s+import\s+(.+)", content)
+                for match in matches:
+                    # match puede ser "Token, UserOut" o "(Token, UserOut)"
+                    names = [n.strip() for n in match.replace("(", "").replace(")", "").split(",")]
+                    for name in names:
+                        if name and name not in schemas_content:
+                            issues.append(f"{py_file.name} importa '{name}' de schemas pero no existe en schemas.py")
+            except:
+                pass
+
+        # 3. Validar imports relativos básicos
+        for py_file in backend_path.rglob("*.py"):
+            if py_file.name == "__init__.py":
+                continue
+            try:
+                content = py_file.read_text(encoding='utf-8')
+                # Buscar from .X import Y o from ..X import Y
+                relative_imports = re.findall(r"from\s+(\.+)(\w+)\s+import", content)
+                for dots, module in relative_imports:
+                    # Resolver la ruta relativa
+                    current_dir = py_file.parent
+                    if dots.count('.') == 1:
+                        # Relativo al mismo directorio
+                        target = current_dir / f"{module}.py"
+                    elif dots.count('.') == 2:
+                        # Relativo al directorio padre
+                        target = current_dir.parent / f"{module}.py"
+                    else:
+                        continue
+                    
+                    if not target.exists():
+                        issues.append(f"{py_file.name}: import relativo a '{module}' que no existe")
+            except:
+                pass
+
+        if issues:
+            print(f"[ARCHITECT] ⚠️ Problemas de integridad encontrados: {len(issues)}")
+            for issue in issues:
+                print(f"   - {issue}")
+            
+            # Intentar reparar automáticamente
             repair_prompt = f"""
-The following routers are defined but NOT included in main.py: {', '.join(missing_integrations)}.
-Please provide ONLY the corrected main.py in format backend/main.py:::<code>.
-Add the necessary import and app.include_router for each missing router.
-Current main.py:
-{main_content}
+Corrige los siguientes problemas de integridad en el proyecto:
+{chr(10).join(f'- {i}' for i in issues)}
+
+Reglas:
+- Si falta un router en main.py, añade el import y app.include_router correspondiente.
+- Si se importa un esquema que no existe en schemas.py, define el esquema faltante en schemas.py.
+- Si un import relativo apunta a un módulo inexistente, créalo con el contenido mínimo necesario.
+- Devuelve los archivos corregidos en formato ruta:::código.
 """
             try:
                 repaired = repair_agent.kickoff(repair_prompt)
@@ -258,9 +315,9 @@ Current main.py:
                     code = repaired.raw if hasattr(repaired, 'raw') else str(repaired)
                     if ":::" in code:
                         execute_plan(code, workspace_base=Path(self.workspace_path))
-                        print("[ARCHITECT] ✅ main.py corregido automáticamente.")
+                        print("[ARCHITECT] ✅ Problemas de integridad reparados automáticamente.")
             except Exception as e:
-                print(f"[ARCHITECT] Error al corregir integración: {e}")
+                print(f"[ARCHITECT] Error al reparar integridad: {e}")
 
     # ─── MÉTODOS DE SOPORTE ───
     def _load_project_context_scoped(self, scope: str, mode: str) -> str:

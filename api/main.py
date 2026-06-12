@@ -495,8 +495,20 @@ def get_project_name(project_id: str):
 @app.get("/api/agents")
 def get_agents_info():
     from core.agent_scanner import ComponentScanner
+    from core.agent_status import get_status as get_dynamic_status
+    
     scanner = ComponentScanner()
-    return scanner.get_full_data()
+    data = scanner.get_full_data()
+    
+    # Inyectar estado en tiempo real a cada agente de cada equipo
+    live_status = get_dynamic_status()
+    for team in data.get("teams", []):
+        for agent in team.get("agents", []):
+            if agent["name"] in live_status:
+                agent["status"] = live_status[agent["name"]]["status"]
+                agent["emoji"] = live_status[agent["name"]]["emoji"]
+    
+    return data
 
 @app.post("/system/cleanup-improvements")
 def cleanup_improvements():

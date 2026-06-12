@@ -1,5 +1,5 @@
 # ============================================================
-# AI-ECOSYSTEM – Arranque centralizado (con Frontend React)
+# AI-ECOSYSTEM – Arranque centralizado (modo pruebas)
 # ============================================================
 Write-Host "🚀 Iniciando el ecosistema AI-ECOSYSTEM..." -ForegroundColor Cyan
 
@@ -58,10 +58,10 @@ if (-not $ready) {
     Write-Host "⚠️ LiteLLM tardó demasiado o falló. Revisá logs/litellm.log" -ForegroundColor DarkYellow
 }
 
-# 5. Iniciar API principal
+# 5. Iniciar API principal (SIN --reload para evitar reinicios)
 Write-Host "🌐 Iniciando API principal (puerto 8000)..." -ForegroundColor Yellow
 try {
-    uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    uvicorn api.main:app --host 0.0.0.0 --port 8000
 } catch {
     Write-Host "❌ Error al iniciar la API." -ForegroundColor Red
 } finally {

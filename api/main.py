@@ -11,6 +11,7 @@ import subprocess
 import sys
 import json as json_module
 import shutil
+import traceback
 from typing import Optional
 from pathlib import Path
 
@@ -83,27 +84,32 @@ class ImprovementProposal(BaseModel):
 # ─── CONFIGURACIÓN DEL SISTEMA ───
 @app.get("/api/settings")
 def get_settings():
-    settings = load_settings()
-    from core.agent_scanner import ComponentScanner
-    scanner = ComponentScanner()
-    settings["available_agents"] = scanner.scan_agents()
-    settings["available_tools"] = scanner.scan_tools()
-    return settings
+    try:
+        settings = load_settings()
+        from core.agent_scanner import ComponentScanner
+        scanner = ComponentScanner()
+        settings["available_agents"] = scanner.scan_agents()
+        settings["available_tools"] = scanner.scan_tools()
+        return settings
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.put("/api/settings")
 def update_settings(settings: dict):
-    current = load_settings()
-    for section in ["models", "agents", "teams"]:
-        if section in settings:
-            current[section] = settings[section]
-    save_settings(current)
-    return {"status": "ok", "message": "Configuración guardada. Reinicia los agentes si es necesario."}
+    try:
+        current = load_settings()
+        for section in ["models", "agents", "teams"]:
+            if section in settings:
+                current[section] = settings[section]
+        save_settings(current)
+        return {"status": "ok", "message": "Configuración guardada."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ─── ASISTENTE DE CONFIGURACIÓN GUIADA ───
 @app.get("/api/project-types")
 def get_project_types():
-    types = config_assistant.get_project_types()
-    return {"types": types}
+    return {"types": config_assistant.get_project_types()}
 
 @app.get("/api/project-questions/{project_type}")
 def get_project_questions(project_type: str):
@@ -114,24 +120,19 @@ def get_project_questions(project_type: str):
 
 @app.post("/api/create-guided-project")
 def create_guided_project(data: dict):
-    project_type = data.get("project_type")
-    answers = data.get("answers", {})
-    
-    if not project_type:
-        raise HTTPException(status_code=400, detail="Tipo de proyecto requerido")
-    
-    prompt = config_assistant.build_prompt(project_type, answers)
-    project_path = project_manager.create_project()
-    final_project_id = project_path.name
-    
-    orchestrator = AutonomousArchitectOrchestrator(workspace_path=str(project_path))
-    orchestrator.orchestrate_project(prompt)
-    
-    return {
-        "project_id": final_project_id,
-        "prompt": prompt,
-        "message": "Proyecto creado exitosamente"
-    }
+    try:
+        project_type = data.get("project_type")
+        answers = data.get("answers", {})
+        if not project_type:
+            raise HTTPException(status_code=400, detail="Tipo de proyecto requerido")
+        prompt = config_assistant.build_prompt(project_type, answers)
+        project_path = project_manager.create_project()
+        final_project_id = project_path.name
+        orchestrator = AutonomousArchitectOrchestrator(workspace_path=str(project_path))
+        orchestrator.orchestrate_project(prompt)
+        return {"project_id": final_project_id, "prompt": prompt, "message": "Proyecto creado exitosamente"}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/dashboard")
 def dashboard():
@@ -145,14 +146,7 @@ def root():
 def list_models():
     return {
         "object": "list",
-        "data": [
-            {
-                "id": "crewai-system",
-                "object": "model",
-                "created": 1234567890,
-                "owned_by": "local"
-            }
-        ]
+        "data": [{"id": "crewai-system", "object": "model", "created": 1234567890, "owned_by": "local"}]
     }
 
 @app.post("/v1/chat/completions")
@@ -201,33 +195,13 @@ def chat_completions(
             "object": "chat.completion",
             "created": 1234567890,
             "model": "crewai-system",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": final_text
-                    },
-                    "finish_reason": "stop"
-                }
-            ]
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": final_text}, "finish_reason": "stop"}]
         }
     except Exception as e:
+        traceback.print_exc()
         return {
             "id": "chatcmpl-error",
-            "object": "chat.completion",
-            "created": 1234567890,
-            "model": "crewai-system",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": f"SERVER ERROR:\n\n{str(e)}"
-                    },
-                    "finish_reason": "stop"
-                }
-            ]
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": f"❌ Error en el servidor:\n\n{str(e)}"}, "finish_reason": "stop"}]
         }
 
 # Graph export
@@ -270,31 +244,37 @@ def export_graph(format: str = Query("dot"), project_id: Optional[str] = Query(N
 # Auto-mejora
 @app.post("/system/propose-improvement")
 def propose_improvement(proposal: ImprovementProposal):
-    proposal_id = improvement_queue.add_proposal(
-        agent_name=proposal.agent_name,
-        title=proposal.title,
-        description=proposal.description,
-        target_file=proposal.target_file,
-        suggested_code=proposal.suggested_code,
-        reason=proposal.reason
-    )
-    return {"status": "ok", "proposal_id": proposal_id}
+    try:
+        proposal_id = improvement_queue.add_proposal(
+            agent_name=proposal.agent_name,
+            title=proposal.title,
+            description=proposal.description,
+            target_file=proposal.target_file,
+            suggested_code=proposal.suggested_code,
+            reason=proposal.reason
+        )
+        return {"status": "ok", "proposal_id": proposal_id}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/system/improvements")
 def list_improvements(status: str = Query("pending")):
-    if status == "all":
-        proposals = improvement_queue.list_all()
-    elif status == "pending":
-        proposals = improvement_queue.list_pending()
-    else:
-        proposals = [p for p in improvement_queue.list_all() if p["status"] == status]
-    
-    filtered = []
-    for p in proposals:
-        target_path = Path(p["target_file"])
-        if target_path.exists():
-            filtered.append(p)
-    return {"proposals": filtered, "count": len(filtered)}
+    try:
+        if status == "all":
+            proposals = improvement_queue.list_all()
+        elif status == "pending":
+            proposals = improvement_queue.list_pending()
+        else:
+            proposals = [p for p in improvement_queue.list_all() if p["status"] == status]
+        
+        filtered = []
+        for p in proposals:
+            target_path = Path(p["target_file"])
+            if target_path.exists():
+                filtered.append(p)
+        return {"proposals": filtered, "count": len(filtered)}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post("/system/apply-improvement/{proposal_id}")
 def apply_improvement(proposal_id: str, test_command: Optional[str] = None):
@@ -345,7 +325,7 @@ def run_meta_agent(project_id: Optional[str] = Query(None)):
             "project_id": project_id
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error MetaAgent: {str(e)}")
+        return {"error": str(e)}
 
 @app.get("/system/metrics")
 def get_quality_metrics(project_id: Optional[str] = Query(None)):
@@ -361,26 +341,29 @@ def get_quality_metrics(project_id: Optional[str] = Query(None)):
         metrics = analyze_quality(str(project_path))
         return {"project_id": project_id, "metrics": metrics}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error obteniendo métricas: {str(e)}")
+        return {"error": str(e)}
 
 @app.get("/projects")
 def list_projects():
-    project_ids = project_manager.list_projects()
-    projects = []
-    for pid in project_ids:
-        proj_path = project_manager.get_project_path(pid)
-        name = pid
-        if proj_path:
-            meta_file = proj_path / "project.json"
-            if meta_file.exists():
-                try:
-                    meta = json_module.loads(meta_file.read_text(encoding='utf-8'))
-                    if "name" in meta:
-                        name = meta["name"]
-                except:
-                    pass
-        projects.append({"id": pid, "name": name})
-    return {"projects": projects}
+    try:
+        project_ids = project_manager.list_projects()
+        projects = []
+        for pid in project_ids:
+            proj_path = project_manager.get_project_path(pid)
+            name = pid
+            if proj_path:
+                meta_file = proj_path / "project.json"
+                if meta_file.exists():
+                    try:
+                        meta = json_module.loads(meta_file.read_text(encoding='utf-8'))
+                        if "name" in meta:
+                            name = meta["name"]
+                    except:
+                        pass
+            projects.append({"id": pid, "name": name})
+        return {"projects": projects}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/projects/{project_id}/files")
 def list_project_files(project_id: str):
@@ -416,37 +399,35 @@ def update_project_file(project_id: str, path: str = Query(...), content: str = 
 
 @app.post("/projects/{project_id}/execute")
 def execute_project_endpoint(project_id: str):
-    project_path = project_manager.get_project_path(project_id)
-    if not project_path:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    try:
+        project_path = project_manager.get_project_path(project_id)
+        if not project_path:
+            raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
-    req_file = project_path / "backend" / "requirements.txt"
-    if not req_file.exists():
-        req_file = project_path / "requirements.txt"
-    
-    if req_file.exists():
-        try:
-            install_result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
-                capture_output=True, text=True, timeout=60
-            )
-        except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "stdout": "",
-                "stderr": "Timeout instalando dependencias.",
-                "execution_type": "desconocido"
-            }
+        req_file = project_path / "backend" / "requirements.txt"
+        if not req_file.exists():
+            req_file = project_path / "requirements.txt"
+        
+        if req_file.exists():
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
+                    capture_output=True, text=True, timeout=60
+                )
+            except subprocess.TimeoutExpired:
+                return {"success": False, "stdout": "", "stderr": "Timeout instalando dependencias.", "execution_type": "desconocido"}
 
-    from core.executor import ProjectExecutor
-    executor = ProjectExecutor(str(project_path))
-    result = executor.execute_project()
-    return {
-        "success": result.get("success", False),
-        "stdout": result.get("stdout", ""),
-        "stderr": result.get("stderr", ""),
-        "execution_type": result.get("execution_type", "desconocido")
-    }
+        from core.executor import ProjectExecutor
+        executor = ProjectExecutor(str(project_path))
+        result = executor.execute_project()
+        return {
+            "success": result.get("success", False),
+            "stdout": result.get("stdout", ""),
+            "stderr": result.get("stderr", ""),
+            "execution_type": result.get("execution_type", "desconocido")
+        }
+    except Exception as e:
+        return {"success": False, "stdout": "", "stderr": str(e), "execution_type": "desconocido"}
 
 @app.get("/projects/{project_id}/chat")
 def get_project_chat(project_id: str):
@@ -494,21 +475,23 @@ def get_project_name(project_id: str):
 
 @app.get("/api/agents")
 def get_agents_info():
-    from core.agent_scanner import ComponentScanner
-    from core.agent_status import get_status as get_dynamic_status
-    
-    scanner = ComponentScanner()
-    data = scanner.get_full_data()
-    
-    # Inyectar estado en tiempo real a cada agente de cada equipo
-    live_status = get_dynamic_status()
-    for team in data.get("teams", []):
-        for agent in team.get("agents", []):
-            if agent["name"] in live_status:
-                agent["status"] = live_status[agent["name"]]["status"]
-                agent["emoji"] = live_status[agent["name"]]["emoji"]
-    
-    return data
+    try:
+        from core.agent_scanner import ComponentScanner
+        from core.agent_status import get_status as get_dynamic_status
+        
+        scanner = ComponentScanner()
+        data = scanner.get_full_data()
+        
+        live_status = get_dynamic_status()
+        for team in data.get("teams", []):
+            for agent in team.get("agents", []):
+                if agent["name"] in live_status:
+                    agent["status"] = live_status[agent["name"]]["status"]
+                    agent["emoji"] = live_status[agent["name"]]["emoji"]
+        
+        return data
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post("/system/cleanup-improvements")
 def cleanup_improvements():

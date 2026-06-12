@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from .database import engine, Base
 from . import auth
-from .routers import notifications, clientes, pagos
+from .routers import notifications
+from .routers import clientes
+from .routers import pagos
 from fastapi.middleware.cors import CORSMiddleware
 import os
 

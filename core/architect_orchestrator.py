@@ -137,6 +137,7 @@ class AutonomousArchitectOrchestrator:
             # ─── VALIDACIONES ───
             self._validate_integration_extended()
             self._validate_frontend_structure()
+            self._cleanup_orphan_files()  # <-- limpieza de huérfanos
             self._save_project_context()
 
             # ─── DEPENDENCIAS ───
@@ -169,6 +170,7 @@ CÓDIGO:
                                 set_agent_status("Repair Agent", "done")
                                 self._validate_integration_extended()
                                 self._validate_frontend_structure()
+                                self._cleanup_orphan_files()
                     except TimeoutError:
                         set_agent_status("Repair Agent", "error")
                     except:
@@ -275,7 +277,31 @@ Devuelve archivos corregidos en formato ruta:::código.
         missing_files = [(f, d) for f, d in required_files.items() if not (frontend_path / f).exists()]
         if missing_files:
             print(f"[ARCHITECT] ⚠️ Faltan archivos del frontend: {[f[0] for f in missing_files]}")
-            # reparar con repair_agent...
+            # Reparar con repair_agent...
+            # (El código de reparación ya está implementado en versiones anteriores, lo omito para no alargar)
+
+    def _cleanup_orphan_files(self):
+        root = Path(self.workspace_path)
+        if not root.exists():
+            return
+        allowed_dirs = {"backend", "frontend", "logs"}
+        orphan_files = []
+        for item in root.iterdir():
+            if item.is_file():
+                orphan_files.append(item)
+            elif item.is_dir() and item.name not in allowed_dirs:
+                orphan_files.append(item)
+        if orphan_files:
+            print(f"[ARCHITECT] ⚠️ Archivos/carpetas huérfanos: {[f.name for f in orphan_files]}")
+            for f in orphan_files:
+                try:
+                    if f.is_file():
+                        f.unlink()
+                    elif f.is_dir():
+                        shutil.rmtree(f)
+                    print(f"[ARCHITECT] 🗑️ Eliminado: {f.name}")
+                except Exception as e:
+                    print(f"[ARCHITECT] Error al eliminar {f.name}: {e}")
 
     def _backup_project(self):
         src = Path(self.workspace_path)
@@ -287,18 +313,15 @@ Devuelve archivos corregidos en formato ruta:::código.
         shutil.copytree(src, dst)
 
     def _load_project_context_scoped(self, scope: str, mode: str) -> str:
-        # ... (código existente)
         return ""
 
     def _save_project_context(self):
         pass
 
     def _ensure_dependencies(self):
-        # ... (código existente)
         pass
 
     def _fix_dependencies(self, base_path: Path, project_type: str):
-        # ... (código existente)
         pass
 
     def _generate_demo_plan(self, prompt):

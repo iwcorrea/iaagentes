@@ -49,3 +49,5 @@ echo OPENROUTER_API_KEY=tu_clave_de_openrouter > .env
 
 # Iniciar todo con un solo comando
 .\start.ps1  # Windows
+
+Luego abres http://localhost:5173 en tu navegador.

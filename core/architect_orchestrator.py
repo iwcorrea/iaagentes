@@ -3,6 +3,7 @@ import traceback
 import json
 from pathlib import Path
 from datetime import datetime
+from typing import Optional, Dict, Any, List, Tuple
 
 ROOT_DIR = Path(__file__).parent.parent.resolve()
 if str(ROOT_DIR) not in sys.path:
@@ -25,7 +26,12 @@ CREWAI_AVAILABLE = True
 
 
 class AutonomousArchitectOrchestrator:
-    def __init__(self, workspace_path="workspace"):
+    """
+    Orquestador profesional del ecosistema de agentes IA.
+    Coordina generación, validación, reparación y despliegue de proyectos.
+    """
+
+    def __init__(self, workspace_path: str = "workspace"):
         self.workspace_path = workspace_path
         self.memory = ArchitectureMemory(root_path=str(Path(workspace_path) / "backend"))
         self.context = GlobalContext()
@@ -39,6 +45,27 @@ class AutonomousArchitectOrchestrator:
         self.crew_available = CREWAI_AVAILABLE
         self.improvement_queue = ImprovementQueue()
 
+        # Métricas de rendimiento
+        self.metrics: Dict[str, Any] = {
+            "start_time": None,
+            "end_time": None,
+            "phases_completed": [],
+            "tokens_estimated": 0,
+            "repairs_applied": 0
+        }
+
+    def _log(self, message: str, level: str = "INFO") -> None:
+        """Logging estructurado con timestamp."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        prefix = {
+            "INFO": "📘",
+            "SUCCESS": "✅",
+            "WARNING": "⚠️",
+            "ERROR": "❌",
+            "PHASE": "🔄"
+        }.get(level, "•")
+        print(f"[{timestamp}] {prefix} {message}")
+
     def orchestrate_project(
         self,
         user_prompt: str,
@@ -47,44 +74,49 @@ class AutonomousArchitectOrchestrator:
         mode: str = "full"
     ) -> str:
         """
-        Orquesta la generación o modificación de un proyecto.
-        
-        Args:
-            user_prompt: El prompt del usuario.
-            is_modification: Si se debe modificar un proyecto existente.
-            scope: Ámbito de la modificación: 'backend', 'frontend' o 'all'.
-            mode: Modo de contexto: 'full' (código completo) o 'light' (solo estructura).
+        Orquesta el flujo completo de generación de software.
         """
+        self.metrics["start_time"] = datetime.now()
         crew_code = ""
         qa_report = ""
         final_project_id = Path(self.workspace_path).name
 
-        # Cargar contexto según ámbito y modo
+        # Cargar contexto para modificaciones
         project_context = ""
         if is_modification:
+            self._log("Modo modificación activado", "PHASE")
             project_context = self._load_project_context_scoped(scope, mode)
-            print(f"[ARCHITECT] Modo modificación activado. Scope: {scope}, Mode: {mode}.")
+            self._log(f"Contexto cargado: {len(project_context)} caracteres", "INFO")
 
         # ─── FASE 1: GENERACIÓN ───
+        self._log("Fase 1: Generación de código", "PHASE")
         if self.crew_available:
-            print(f"[ARCHITECT] Fase 1: Usando el flujo completo de agentes CrewAI.")
             try:
                 crew_code, qa_report = run_ecommerce_workflow(user_prompt, project_context, is_modification)
                 if not crew_code or crew_code.isspace():
-                    raise ValueError("El flujo CrewAI no generó código.")
-                print("[ARCHITECT] Generación de código completada.")
+                    raise ValueError("El flujo CrewAI no generó código")
+                self._log("Generación de código completada", "SUCCESS")
+                self.metrics["phases_completed"].append("generation")
             except Exception as e:
-                print(f"[ARCHITECT] Falló generación CrewAI: {e}. Usando plan DEMO.")
+                self._log(f"Fallo en generación: {e}", "ERROR")
                 crew_code = self._generate_demo_plan(user_prompt)
-                qa_report = "No se ejecutó QA (plan DEMO)."
+                qa_report = "No se ejecutó QA (plan DEMO)"
+                self._log("Usando plan DEMO como fallback", "WARNING")
         else:
-            print("[ARCHITECT] Fase 1: Usando modo DEMO (CrewAI desactivado).")
+            self._log("CrewAI no disponible, usando plan DEMO", "WARNING")
             crew_code = self._generate_demo_plan(user_prompt)
-            qa_report = "CrewAI desactivado."
+            qa_report = "CrewAI desactivado"
 
         # ─── FASE 2: ESCRITURA DE ARCHIVOS ───
-        execution_summary = execute_plan(crew_code, workspace_base=Path(self.workspace_path))
+        self._log("Fase 2: Escritura de archivos", "PHASE")
+        try:
+            execution_summary = execute_plan(crew_code, workspace_base=Path(self.workspace_path))
+            self._log("Archivos escritos correctamente", "SUCCESS")
+            self.metrics["phases_completed"].append("file_writing")
+        except Exception as e:
+            self._log(f"Error escribiendo archivos: {e}", "ERROR")
 
+        # Guardar metadata del proyecto
         project_json_path = Path(self.workspace_path) / "project.json"
         if not project_json_path.exists():
             project_json_path.write_text(json.dumps({
@@ -94,129 +126,171 @@ class AutonomousArchitectOrchestrator:
 
         self._save_project_context()
 
-        # ─── FASE 2.5: GESTIÓN DE DEPENDENCIAS ───
-        print("[ARCHITECT] Verificando dependencias...")
+        # ─── FASE 3: GESTIÓN DE DEPENDENCIAS ───
+        self._log("Fase 3: Verificación de dependencias", "PHASE")
         try:
             self._ensure_dependencies()
+            self._log("Dependencias verificadas", "SUCCESS")
+            self.metrics["phases_completed"].append("dependencies")
         except Exception as e:
-            print(f"[ARCHITECT] Error al asegurar dependencias: {e}")
+            self._log(f"Error en dependencias: {e}", "WARNING")
 
-        # ─── FASE 3: REPARACIÓN AUTOMÁTICA ITERATIVA ───
+        # ─── FASE 4: REPARACIÓN ITERATIVA ───
         if qa_report and "No se ejecutó QA" not in qa_report and self.crew_available:
+            self._log("Fase 4: Reparación iterativa", "PHASE")
+            repairs_applied = 0
             for iteration in range(3):
-                print(f"[ARCHITECT] Fase 3 (iteración {iteration+1}): Reparando código basado en QA...")
+                self._log(f"Iteración {iteration + 1}/3", "INFO")
                 try:
                     repair_prompt = f"""
 CORRIGE el siguiente código según el informe de auditoría.
-Devuelve el código corregido usando EXACTAMENTE el mismo formato (ruta:::código para cada archivo).
-No añadas explicaciones, solo el código corregido.
+Devuelve EXACTAMENTE el formato ruta:::código para cada archivo.
 
 INFORME DE AUDITORÍA:
-{qa_report}
+{qa_report[:2000]}
 
 CÓDIGO ORIGINAL:
-{crew_code}
+{crew_code[:3000]}
 """
                     repaired_code = repair_agent.kickoff(repair_prompt)
 
                     if repaired_code and not str(repaired_code).isspace():
-                        repaired_text = repaired_code.raw if hasattr(repaired_code, 'raw') else str(repaired_code)
+                        repaired_text = (
+                            repaired_code.raw if hasattr(repaired_code, 'raw')
+                            else str(repaired_code)
+                        )
                         if repaired_text and not repaired_text.isspace():
-                            print("[ARCHITECT] Código reparado recibido. Sobrescribiendo archivos...")
                             execute_plan(repaired_text, workspace_base=Path(self.workspace_path))
                             crew_code = repaired_text
+                            repairs_applied += 1
 
+                            # Re-evaluar con QA
                             try:
                                 qa_response = repair_agent.kickoff(
-                                    f"Revisa el siguiente código y genera un informe de auditoría:\n\n{repaired_text}"
+                                    f"Revisa y genera informe de auditoría:\n\n{repaired_text[:3000]}"
                                 )
                                 if qa_response and not str(qa_response).isspace():
-                                    qa_report = qa_response.raw if hasattr(qa_response, 'raw') else str(qa_response)
-                                    print("[ARCHITECT] QA actualizado tras reparación.")
-                            except Exception as qa_err:
-                                print(f"[ARCHITECT] Error al re-ejecutar QA: {qa_err}")
+                                    qa_report = (
+                                        qa_response.raw if hasattr(qa_response, 'raw')
+                                        else str(qa_response)
+                                    )
+                            except Exception:
+                                pass
 
+                            # Verificar si el código está limpio
                             if "error" not in qa_report.lower() and "vulnerabilidad" not in qa_report.lower():
-                                print("[ARCHITECT] QA limpio. Reparación iterativa completada.")
+                                self._log("Código limpio después de reparación", "SUCCESS")
                                 break
                 except Exception as e:
-                    print(f"[ARCHITECT] Error en reparación iterativa: {e}")
+                    self._log(f"Error en reparación: {e}", "WARNING")
 
-        # ─── FASE 4: ANÁLISIS Y EJECUCIÓN ───
+            self.metrics["repairs_applied"] = repairs_applied
+            if repairs_applied > 0:
+                self.metrics["phases_completed"].append("repair")
+
+        # ─── FASE 5: ANÁLISIS FINAL Y EJECUCIÓN ───
+        self._log("Fase 5: Análisis final y ejecución", "PHASE")
         try:
-            print("[ARCHITECT] Escaneando estructura del proyecto...")
             self.memory.scan_project()
             initial_issues = self.memory.validate()
-            fix_log_static = []
             if initial_issues:
-                print(f"[ARCHITECT] {len(initial_issues)} problemas encontrados. Reparando...")
-                fix_log_static = self.memory.fix_imports_globally()
+                self._log(f"{len(initial_issues)} problemas encontrados", "WARNING")
+                self.memory.fix_imports_globally()
 
-            print("[ARCHITECT] Ejecutando motor de refactorización...")
-            refactor_log = self.refactor.analyze_and_fix(extended=True)
-            if refactor_log:
-                self.memory.scan_project()
+            self.refactor.analyze_and_fix(extended=True)
 
-            print("[ARCHITECT] Ejecutando proyecto...")
             executor = ProjectExecutor(str(self.workspace_path), memory=self.memory)
             execution_result = executor.execute_project()
-            runtime_fix_log = execution_result.get('auto_fix_applied', [])
+            success = execution_result.get('success', False)
 
-            meta_proposals = 0
+            # Ejecutar MetaAgent
             try:
-                print("[ARCHITECT] MetaAgent analizando el sistema...")
                 meta = MetaAgent(memory=self.memory, queue=self.improvement_queue)
                 proposal_ids = meta.analyze_and_propose(project_root=".")
-                meta_proposals = len(proposal_ids)
-                if meta_proposals > 0:
-                    print(f"[ARCHITECT] MetaAgent generó {meta_proposals} propuestas.")
-            except Exception as e:
-                print(f"[ARCHITECT] MetaAgent error: {e}")
-
-            context_summary = {"models": "N/A", "routes": "N/A", "entities": "N/A"}
-            try:
-                context_summary = self.context.summary()
-            except:
+                if proposal_ids:
+                    self._log(f"MetaAgent generó {len(proposal_ids)} propuestas", "INFO")
+            except Exception:
                 pass
 
             final_issues = self.memory.validate()
-            success = execution_result.get('success', False)
             status = "✅ SALUDABLE" if success and not final_issues else "⚠️ REQUIERE ATENCIÓN"
-            status += " (Ejecución exitosa)" if success else " (Falló la ejecución)"
+            if success:
+                status += " (Ejecución exitosa)"
+            else:
+                status += " (Falló la ejecución)"
 
-            report = "==================================================\n"
-            report += "🧠 AUTONOMOUS SOFTWARE ARCHITECT REPORT\n"
-            report += "==================================================\n"
-            report += "ESTADO: " + status + "\n\n"
-            report += "1. REPARACIONES ESTÁTICAS:\n" + "\n".join(
-                [f"  - {r.get('action','')} en {r.get('file','')}" for r in fix_log_static]
-            ) or "Ninguna" + "\n\n"
-            report += "2. REFACTORIZACIONES:\n" + "\n".join(
-                [f"  - {r.get('rule','')}: {r.get('file','')}" for r in refactor_log]
-            ) or "Ninguna" + "\n\n"
-            report += "3. EJECUCIÓN:\n"
-            report += f"   - Tipo: {execution_result.get('execution_type', 'desconocido')}\n"
-            report += f"   - Éxito: {success}\n"
-            report += f"   - Salida: {execution_result.get('stdout', '')[:200]}\n"
-            report += f"   - Error: {execution_result.get('stderr', '')[:200]}\n\n"
-            report += "4. RUNTIME:\n" + "\n".join(
-                [f"  - {r.get('action','')} en {r.get('file','')}" for r in runtime_fix_log]
-            ) or "Ninguna" + "\n\n"
-            report += f"5. PROBLEMAS RESTANTES: {len(final_issues) if final_issues else 0}\n\n"
-            report += "6. CONTEXTO GLOBAL:\n"
-            report += f"   - Modelos: {context_summary.get('models', '')}\n"
-            report += f"   - Rutas: {context_summary.get('routes', '')}\n"
-            report += f"   - Entidades: {context_summary.get('entities', '')}\n\n"
-            report += "7. INFORME DE QA:\n" + qa_report[:500] + "\n"
+            # Construir reporte
+            report = self._build_report(
+                status=status,
+                execution_result=execution_result,
+                qa_report=qa_report,
+                metrics=self.metrics
+            )
+
+            self.metrics["end_time"] = datetime.now()
+            elapsed = (self.metrics["end_time"] - self.metrics["start_time"]).total_seconds()
+            self._log(f"Orquestación completada en {elapsed:.1f}s", "SUCCESS")
 
             return report
+
         except Exception as e:
-            return "ERROR:\n" + traceback.format_exc()
+            self._log(f"Error en fase final: {e}", "ERROR")
+            return self._build_error_report(e)
+
+    def _build_report(
+        self,
+        status: str,
+        execution_result: Dict,
+        qa_report: str,
+        metrics: Dict
+    ) -> str:
+        """Construye el reporte final de manera profesional."""
+        try:
+            context_summary = self.context.summary()
+        except Exception:
+            context_summary = {"models": "N/A", "routes": "N/A", "entities": "N/A"}
+
+        elapsed = ""
+        if metrics.get("start_time") and metrics.get("end_time"):
+            elapsed = f"{(metrics['end_time'] - metrics['start_time']).total_seconds():.1f}s"
+
+        return f"""
+==================================================
+🧠 REPORTE DEL ARQUITECTO AUTÓNOMO
+==================================================
+ESTADO: {status}
+TIEMPO TOTAL: {elapsed}
+FASES COMPLETADAS: {', '.join(metrics.get('phases_completed', []))}
+REPARACIONES APLICADAS: {metrics.get('repairs_applied', 0)}
+
+EJECUCIÓN:
+  Tipo: {execution_result.get('execution_type', 'desconocido')}
+  Éxito: {execution_result.get('success', False)}
+  Salida: {execution_result.get('stdout', '')[:200]}
+  Error: {execution_result.get('stderr', '')[:200]}
+
+CONTEXTO GLOBAL:
+  Modelos: {context_summary.get('models', '')}
+  Rutas: {context_summary.get('routes', '')}
+  Entidades: {context_summary.get('entities', '')}
+
+INFORME DE QA:
+{qa_report[:500] if qa_report else 'No disponible'}
+"""
+
+    def _build_error_report(self, exception: Exception) -> str:
+        return f"""
+==================================================
+❌ ERROR EN ORQUESTACIÓN
+==================================================
+{str(exception)}
+
+TRACEBACK:
+{traceback.format_exc()[:1000]}
+"""
 
     def _load_project_context_scoped(self, scope: str, mode: str) -> str:
-        """
-        Carga el contexto según el ámbito (backend/frontend/all) y el modo (light/full).
-        """
+        """Carga el contexto del proyecto según ámbito y modo."""
         project_path = Path(self.workspace_path)
         if not project_path.exists():
             return ""
@@ -226,7 +300,6 @@ CÓDIGO ORIGINAL:
             if f.is_file() and f.name not in ["project_context.json", "chat.json", "project.json"]:
                 rel = str(f.relative_to(project_path))
 
-                # Filtrar por ámbito
                 if scope == "backend" and not rel.startswith("backend"):
                     continue
                 if scope == "frontend" and not rel.startswith("frontend"):
@@ -238,12 +311,32 @@ CÓDIGO ORIGINAL:
                     try:
                         content = f.read_text(encoding='utf-8')[:1000]
                         lines.append(f"=== {rel} ===\n{content}")
-                    except:
+                    except Exception:
                         lines.append(f"=== {rel} ===\n[binario]")
 
         return "\n".join(lines)
 
-    def _ensure_dependencies(self):
+    def _save_project_context(self) -> None:
+        """Guarda el contexto del proyecto para futuras modificaciones."""
+        context_path = Path(self.workspace_path) / "project_context.json"
+        try:
+            files = {}
+            for f in Path(self.workspace_path).rglob("*"):
+                if f.is_file() and f.name not in ["project_context.json", "chat.json"]:
+                    rel = str(f.relative_to(self.workspace_path))
+                    try:
+                        files[rel] = f.read_text(encoding='utf-8')[:500]
+                    except Exception:
+                        files[rel] = "[binario]"
+            context_path.write_text(json.dumps({
+                "files": list(files.keys()),
+                "structure": {str(k): v for k, v in files.items()}
+            }, indent=2), encoding='utf-8')
+        except Exception as e:
+            self._log(f"Error guardando contexto: {e}", "WARNING")
+
+    def _ensure_dependencies(self) -> None:
+        """Verifica y repara dependencias del proyecto."""
         backend_path = Path(self.workspace_path) / "backend"
         frontend_path = Path(self.workspace_path) / "frontend"
 
@@ -257,12 +350,14 @@ CÓDIGO ORIGINAL:
             if not pkg_file.exists() or len(pkg_file.read_text(encoding='utf-8').strip()) < 20:
                 self._fix_dependencies(frontend_path, "frontend")
 
-    def _fix_dependencies(self, base_path: Path, project_type: str):
+    def _fix_dependencies(self, base_path: Path, project_type: str) -> None:
+        """Usa el agente de dependencias para reparar archivos de configuración."""
         code_files = []
         for ext in ['.py', '.jsx', '.js']:
             for f in base_path.rglob(f'*{ext}'):
                 if f.name not in ["requirements.txt", "package.json"]:
                     code_files.append(str(f.relative_to(base_path)))
+
         if not code_files:
             return
 
@@ -277,25 +372,12 @@ Entrega usando el formato path:::code.
                 dep_code = response.raw if hasattr(response, 'raw') else str(response)
                 if dep_code:
                     execute_plan(dep_code, workspace_base=Path(self.workspace_path))
+                    self._log(f"Dependencias de {project_type} actualizadas", "SUCCESS")
         except Exception as e:
-            print(f"[ARCHITECT] Error generando dependencias: {e}")
+            self._log(f"Error generando dependencias: {e}", "WARNING")
 
-    def _save_project_context(self):
-        context_path = Path(self.workspace_path) / "project_context.json"
-        try:
-            files = {}
-            for f in Path(self.workspace_path).rglob("*"):
-                if f.is_file() and f.name not in ["project_context.json", "chat.json"]:
-                    rel = str(f.relative_to(self.workspace_path))
-                    try:
-                        files[rel] = f.read_text(encoding='utf-8')[:500]
-                    except:
-                        files[rel] = "[binario]"
-            context_path.write_text(json.dumps({"files": list(files.keys()), "structure": files}, indent=2), encoding='utf-8')
-        except Exception as e:
-            print(f"[ARCHITECT] Error guardando contexto: {e}")
-
-    def _generate_demo_plan(self, prompt):
+    def _generate_demo_plan(self, prompt: str) -> str:
+        """Plan de respaldo mínimo funcional."""
         return (
             'backend/main.py:::from fastapi import FastAPI\n'
             'app = FastAPI()\n\n'

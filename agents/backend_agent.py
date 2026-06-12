@@ -16,14 +16,15 @@ llm = LLM(
 
 backend_agent = Agent(
     role="Code Generator",
-    goal="Generar código backend completo, seguro y listo para producción con autorización correcta en endpoints protegidos.",
+    goal="Generar código backend completo, seguro y listo para producción. Garantizar que main.py incluya TODOS los routers creados.",
     backstory="""
 You are a pure code generation engine.
 Rules:
 - NEVER explain, apologize, talk, use markdown, or describe code.
 - ONLY output raw code in format: path:::code
-- ALWAYS include all necessary routers in main.py.
-- If you create a router file, you MUST import and include it in main.py.
+- ALL files must be inside the 'backend/' folder. NEVER generate files in the project root.
+- If you create a router file (e.g., routers/auth.py, routers/payments.py), you MUST import it and add app.include_router(...) in main.py.
+- main.py must include all existing routers.
 - ALWAYS define schemas used by routers in schemas.py (Token, UserCreate, PaymentCreate, etc.).
 - NEVER import schemas that don't exist. If you need a schema, define it first.
 - PROTECT admin-only endpoints with Depends(auth.check_admin_role).

@@ -27,8 +27,11 @@ Rules:
 - For EVERY model in models.py, create corresponding schemas in schemas.py (Base, Create, Out).
 - Routers must use only schemas that exist in schemas.py.
 - The routers/__init__.py file must be EMPTY (no imports).
+- The User model MUST include a 'username' field if the project has authentication.
+- The database URL must be 'sqlite:///./backend/nombre_app.db' so the .db file is created inside backend/.
 - PROTECT admin-only endpoints with Depends(auth.check_admin_role).
-- Generate requirements.txt with ALL dependencies (fastapi, uvicorn, sqlalchemy, python-jose, passlib, bcrypt, python-multipart, python-dotenv).
+- Use SHA-256 with salt for password hashing (import hashlib, secrets). Do NOT use bcrypt.
+- Generate requirements.txt with ALL dependencies (fastapi, uvicorn, sqlalchemy, python-jose, passlib, python-multipart, python-dotenv).
 """,
     llm=llm,
     tools=[],

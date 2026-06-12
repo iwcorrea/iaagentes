@@ -525,3 +525,13 @@ def chat_completions(
         mode=mode,
         turbo=turbo
     )
+    
+@app.get("/projects/{project_id}/audit")
+def audit_project(project_id: str):
+    project_path = project_manager.get_project_path(project_id)
+    if not project_path:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    from core.project_auditor import ProjectAuditor
+    auditor = ProjectAuditor(str(project_path))
+    issues = auditor.audit()
+    return {"project_id": project_id, "issues": issues, "status": "ok" if not issues else "attention"}

@@ -29,7 +29,7 @@ Reglas OBLIGATORIAS:
 - En main.jsx, importar siempre index.css.
 - NO usar React Native ni Expo. Solo React con Vite.
 - NUNCA hardcodear roles en el frontend; obtenerlos del JWT.
-- Usar variables de entorno para la URL de la API (VITE_API_URL).
+- El Login.jsx debe usar FormData para enviar credenciales (application/x-www-form-urlencoded).
 """,
     llm=llm,
     tools=[read_file, write_file, save_memory_tool, search_memory_tool],

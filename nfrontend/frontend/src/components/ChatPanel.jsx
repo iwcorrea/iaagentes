@@ -23,7 +23,6 @@ const AGENT_TASKS = {
 }
 
 export default function ChatPanel() {
-  const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [scope, setScope] = useState('all')
@@ -32,7 +31,7 @@ export default function ChatPanel() {
   const [showGuided, setShowGuided] = useState(false)
   const [agentStatus, setAgentStatus] = useState({})
   const [progressMessages, setProgressMessages] = useState([])
-  const { activeProjectId, projectName, setActiveProjectId } = useProject()
+  const { activeProjectId, projectName, setActiveProjectId, chatMessages, setChatMessages } = useProject()
   const bottomRef = useRef(null)
   const { showToast, ToastContainer } = useToast()
 
@@ -48,9 +47,7 @@ export default function ChatPanel() {
           const statusMap = {}
           allAgents.forEach(a => { statusMap[a.name] = a.status })
           setAgentStatus(prev => {
-            // Solo actualizar si cambió algo
             if (JSON.stringify(prev) === JSON.stringify(statusMap)) return prev
-            // Generar mensajes de progreso
             const msgs = []
             Object.entries(statusMap).forEach(([name, status]) => {
               if (status === 'working') {
@@ -74,18 +71,8 @@ export default function ChatPanel() {
   }, [loading])
 
   useEffect(() => {
-    if (activeProjectId) {
-      api.get(`/projects/${activeProjectId}/chat`)
-        .then(res => setMessages(res.data.messages || []))
-        .catch(() => setMessages([]))
-    } else {
-      setMessages([])
-    }
-  }, [activeProjectId])
-
-  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, progressMessages])
+  }, [chatMessages, progressMessages])
 
   const send = useCallback(async () => {
     const text = input.trim()
@@ -94,7 +81,8 @@ export default function ChatPanel() {
     setLoading(true)
 
     const userMsg = { role: 'user', content: text }
-    setMessages(prev => [...prev, userMsg])
+    const updatedMessages = [...chatMessages, userMsg]
+    setChatMessages(updatedMessages)
 
     try {
       const params = { turbo }
@@ -103,9 +91,10 @@ export default function ChatPanel() {
         params.scope = scope
         params.mode = mode
       }
-      const res = await api.post('/v1/chat/completions', { messages: [...messages, userMsg] }, { params })
+      const res = await api.post('/v1/chat/completions', { messages: updatedMessages }, { params })
       const reply = res.data.choices?.[0]?.message?.content || 'Sin respuesta'
-      setMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      const finalMessages = [...updatedMessages, { role: 'assistant', content: reply }]
+      setChatMessages(finalMessages)
 
       const projectIdMatch = reply.match(/Proyecto ID: (\w+)/)
       if (projectIdMatch && !activeProjectId) {
@@ -113,17 +102,15 @@ export default function ChatPanel() {
         showToast('¡Proyecto creado!', 'success')
       }
       if (activeProjectId) {
-        api.post(`/projects/${activeProjectId}/chat`, {
-          messages: [...messages, userMsg, { role: 'assistant', content: reply }]
-        })
+        api.post(`/projects/${activeProjectId}/chat`, { messages: finalMessages })
       }
     } catch (err) {
       showToast('Error al comunicarse con los agentes', 'error')
-      setMessages(prev => [...prev, { role: 'assistant', content: '❌ Error de conexión' }])
+      setChatMessages(prev => [...prev, { role: 'assistant', content: '❌ Error de conexión' }])
     } finally {
       setLoading(false)
     }
-  }, [input, loading, messages, activeProjectId, scope, mode, turbo, showToast, setActiveProjectId])
+  }, [input, loading, chatMessages, activeProjectId, scope, mode, turbo, showToast, setActiveProjectId, setChatMessages])
 
   const placeholderText = activeProjectId
     ? `Modificar "${projectName || activeProjectId}"...`
@@ -132,7 +119,7 @@ export default function ChatPanel() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto space-y-4 p-4">
-        {messages.length === 0 && !loading && (
+        {chatMessages.length === 0 && !loading && (
           <div className="text-center text-gray-500 mt-20">
             <div className="text-6xl mb-4">🧠</div>
             <p className="text-xl font-semibold text-gray-300">¿Qué proyecto querés crear, parce?</p>
@@ -144,7 +131,7 @@ export default function ChatPanel() {
             </p>
           </div>
         )}
-        {messages.map((m, i) => (
+        {chatMessages.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[75%] px-5 py-3 rounded-2xl text-sm ${
               m.role === 'user'

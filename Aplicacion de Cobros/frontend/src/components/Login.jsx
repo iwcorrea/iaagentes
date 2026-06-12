@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import axios from 'axios'
 
+const api = axios.create({ baseURL: 'http://localhost:8001' })
+
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -8,18 +10,25 @@ export default function Login({ onLogin }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    setError('')
     try {
       const formData = new URLSearchParams()
       formData.append('username', username)
       formData.append('password', password)
-      const res = await axios.post('http://localhost:8001/auth/token', formData)
+      const res = await api.post('/auth/token', formData, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      })
       const { access_token } = res.data
-      const userRes = await axios.get('http://localhost:8001/auth/me', {
+      const userRes = await api.get('/auth/me', {
         headers: { Authorization: `Bearer ${access_token}` }
       })
       onLogin(access_token, userRes.data)
     } catch (err) {
-      setError('Credenciales incorrectas')
+      if (err.response?.status === 401) {
+        setError('Credenciales incorrectas')
+      } else {
+        setError('Error de conexión con el servidor')
+      }
     }
   }
 

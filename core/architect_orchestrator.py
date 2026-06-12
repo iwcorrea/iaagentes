@@ -112,12 +112,10 @@ class AutonomousArchitectOrchestrator:
                     print("[ARCHITECT] Generación completada.")
                 except TimeoutError:
                     set_all_status("error")
-                    print(f"[ARCHITECT] Timeout en generación.")
                     crew_code = self._generate_demo_plan(user_prompt)
                     qa_report = "Timeout en generación."
                 except Exception as e:
                     set_all_status("error")
-                    print(f"[ARCHITECT] Falló CrewAI: {e}")
                     crew_code = self._generate_demo_plan(user_prompt)
                     qa_report = "Error en generación."
             else:
@@ -137,7 +135,7 @@ class AutonomousArchitectOrchestrator:
             # ─── VALIDACIONES ───
             self._validate_integration_extended()
             self._validate_frontend_structure()
-            self._cleanup_orphan_files()  # <-- limpieza de huérfanos
+            self._clean_orphan_files()
             self._save_project_context()
 
             # ─── DEPENDENCIAS ───
@@ -170,7 +168,6 @@ CÓDIGO:
                                 set_agent_status("Repair Agent", "done")
                                 self._validate_integration_extended()
                                 self._validate_frontend_structure()
-                                self._cleanup_orphan_files()
                     except TimeoutError:
                         set_agent_status("Repair Agent", "error")
                     except:
@@ -179,7 +176,6 @@ CÓDIGO:
                         break
 
             # ─── EJECUCIÓN ───
-            print("[ARCHITECT] Escaneando...")
             self.memory.scan_project()
             self.memory.fix_imports_globally()
             self.refactor.analyze_and_fix(extended=True)
@@ -193,18 +189,17 @@ CÓDIGO:
 
             success = execution_result.get('success', False)
             status = "✅ SALUDABLE" if success else "⚠️ REQUIERE ATENCIÓN"
-            report = f"""
+            return f"""
 🧠 PROYECTO {final_project_id}
 ESTADO: {status}
 SALIDA: {execution_result.get('stdout', '')[:200]}
 ERROR: {execution_result.get('stderr', '')[:200]}
 QA: {qa_report[:300] if not turbo else 'Turbo: QA omitido'}
 """
-            return report
-
         finally:
             allow_sleep()
 
+    # ─── VALIDACIONES ───
     def _validate_integration_extended(self):
         backend_path = Path(self.workspace_path) / "backend"
         if not backend_path.exists():
@@ -240,12 +235,12 @@ QA: {qa_report[:300] if not turbo else 'Turbo: QA omitido'}
                     names = [n.strip() for n in match.replace("(", "").replace(")", "").split(",")]
                     for name in names:
                         if name and name not in schemas_content:
-                            issues.append(f"{py_file.name} importa '{name}' de schemas pero no existe")
+                            issues.append(f"{py_file.name} importa '{name}' de schemas pero no existe en schemas.py")
             except:
                 pass
         if issues:
             repair_prompt = f"""
-Corrige los siguientes problemas:
+Corrige los siguientes problemas de integridad:
 {chr(10).join(f'- {i}' for i in issues)}
 
 Devuelve archivos corregidos en formato ruta:::código.
@@ -277,31 +272,37 @@ Devuelve archivos corregidos en formato ruta:::código.
         missing_files = [(f, d) for f, d in required_files.items() if not (frontend_path / f).exists()]
         if missing_files:
             print(f"[ARCHITECT] ⚠️ Faltan archivos del frontend: {[f[0] for f in missing_files]}")
-            # Reparar con repair_agent...
-            # (El código de reparación ya está implementado en versiones anteriores, lo omito para no alargar)
+            repair_prompt = f"""
+Faltan los siguientes archivos en el frontend. Generá cada uno usando el formato ruta:::código.
+{chr(10).join([f'{f[0]} – {f[1]}' for f in missing_files])}
 
-    def _cleanup_orphan_files(self):
+Reglas:
+- package.json debe incluir react, react-dom, react-router-dom, axios, tailwindcss, postcss, autoprefixer, vite, @vitejs/plugin-react.
+- Login.jsx y Dashboard.jsx deben ser funcionales y usar axios para la API.
+- App.jsx debe tener React Router con rutas protegidas.
+- El código debe ser moderno y listo para ejecutar.
+"""
+            try:
+                repaired = repair_agent.kickoff(repair_prompt)
+                if repaired:
+                    code = repaired.raw if hasattr(repaired, 'raw') else str(repaired)
+                    if ":::" in code:
+                        execute_plan(code, workspace_base=Path(self.workspace_path))
+                        print("[ARCHITECT] ✅ Archivos del frontend generados automáticamente.")
+            except Exception as e:
+                print(f"[ARCHITECT] Error al generar archivos del frontend: {e}")
+
+    def _clean_orphan_files(self):
+        """Elimina archivos/carpetas en la raíz del proyecto que no pertenecen a backend/ ni frontend/."""
         root = Path(self.workspace_path)
-        if not root.exists():
-            return
-        allowed_dirs = {"backend", "frontend", "logs"}
-        orphan_files = []
+        allowed = {"backend", "frontend", "project.json", "project_context.json", "chat.json"}
         for item in root.iterdir():
-            if item.is_file():
-                orphan_files.append(item)
-            elif item.is_dir() and item.name not in allowed_dirs:
-                orphan_files.append(item)
-        if orphan_files:
-            print(f"[ARCHITECT] ⚠️ Archivos/carpetas huérfanos: {[f.name for f in orphan_files]}")
-            for f in orphan_files:
-                try:
-                    if f.is_file():
-                        f.unlink()
-                    elif f.is_dir():
-                        shutil.rmtree(f)
-                    print(f"[ARCHITECT] 🗑️ Eliminado: {f.name}")
-                except Exception as e:
-                    print(f"[ARCHITECT] Error al eliminar {f.name}: {e}")
+            if item.name not in allowed:
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+                print(f"[ARCHITECT] 🧹 Eliminado archivo huérfano: {item.name}")
 
     def _backup_project(self):
         src = Path(self.workspace_path)
@@ -313,16 +314,62 @@ Devuelve archivos corregidos en formato ruta:::código.
         shutil.copytree(src, dst)
 
     def _load_project_context_scoped(self, scope: str, mode: str) -> str:
-        return ""
+        project_path = Path(self.workspace_path)
+        if not project_path.exists():
+            return ""
+        lines = []
+        for f in project_path.rglob("*"):
+            if f.is_file() and f.name not in ["project_context.json", "chat.json", "project.json"]:
+                rel = str(f.relative_to(project_path))
+                if scope == "backend" and not rel.startswith("backend"):
+                    continue
+                if scope == "frontend" and not rel.startswith("frontend"):
+                    continue
+                if mode == "light":
+                    lines.append(f"- {rel}")
+                else:
+                    try:
+                        content = f.read_text(encoding='utf-8')
+                        if len(content) > 500:
+                            lines.append(f"=== {rel} ===\n{content[:500]}\n... (truncado)")
+                        else:
+                            lines.append(f"=== {rel} ===\n{content}")
+                    except:
+                        pass
+        return "\n".join(lines)
 
     def _save_project_context(self):
         pass
 
     def _ensure_dependencies(self):
-        pass
+        backend_path = Path(self.workspace_path) / "backend"
+        frontend_path = Path(self.workspace_path) / "frontend"
+        if backend_path.exists():
+            req_file = backend_path / "requirements.txt"
+            if not req_file.exists() or len(req_file.read_text(encoding='utf-8').strip()) < 20:
+                self._fix_dependencies(backend_path, "backend")
+        if frontend_path.exists():
+            pkg_file = frontend_path / "package.json"
+            if not pkg_file.exists() or len(pkg_file.read_text(encoding='utf-8').strip()) < 20:
+                self._fix_dependencies(frontend_path, "frontend")
 
     def _fix_dependencies(self, base_path: Path, project_type: str):
-        pass
+        code_files = []
+        for ext in ['.py', '.jsx', '.js']:
+            for f in base_path.rglob(f'*{ext}'):
+                if f.name not in ["requirements.txt", "package.json"]:
+                    code_files.append(str(f.relative_to(base_path)))
+        if not code_files:
+            return
+        prompt = f"Genera archivo de dependencias para {project_type} con archivos: {', '.join(code_files[:10])}. Formato: path:::code."
+        try:
+            response = dependency_agent.kickoff(prompt)
+            if response:
+                dep_code = response.raw if hasattr(response, 'raw') else str(response)
+                if dep_code:
+                    execute_plan(dep_code, workspace_base=Path(self.workspace_path))
+        except:
+            pass
 
     def _generate_demo_plan(self, prompt):
         return (

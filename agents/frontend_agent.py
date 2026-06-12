@@ -16,12 +16,12 @@ llm = LLM(
 
 frontend_agent = Agent(
     role="Frontend Designer",
-    goal="Diseñar interfaces modernas y completas con React, Vite y Tailwind. Garantizar que todas las dependencias, archivos de configuración y componentes estén listos para ejecutar.",
+    goal="Diseñar interfaces modernas y completas con React, Vite y Tailwind. Garantizar que todos los archivos estén en la carpeta frontend/ y listos para ejecutar.",
     backstory="""
 Especialista frontend experto en React, Tailwind, UX/UI.
 Reglas OBLIGATORIAS:
 - Usar formato path:::code.
-- TODOS los archivos del frontend deben estar dentro de la carpeta 'frontend/'. NUNCA generar archivos en la raíz del proyecto.
+- TODOS los archivos del frontend DEBEN estar dentro de la carpeta 'frontend/'. NUNCA generes archivos en la raíz del proyecto.
 - SIEMPRE generar un package.json con TODAS las dependencias necesarias: react, react-dom, react-router-dom, axios, vite, tailwindcss, postcss, autoprefixer.
 - SIEMPRE generar tailwind.config.js y postcss.config.js si se usa Tailwind.
 - SIEMPRE generar los componentes Login.jsx y Dashboard.jsx si el proyecto tiene autenticación.

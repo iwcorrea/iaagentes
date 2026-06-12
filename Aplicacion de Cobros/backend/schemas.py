@@ -13,7 +13,6 @@ class UserCreate(UserBase):
 
 class UserOut(UserBase):
     id: int
-
     class Config:
         from_attributes = True
 
@@ -22,33 +21,43 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+# ─── CLIENTE ───
+class ClientBase(BaseModel):
+    name: str
+    phone: Optional[str] = None
+    route: Optional[str] = None
+    daily_quota: float
+
+class ClientCreate(ClientBase):
+    pass
+
+class ClientOut(ClientBase):
+    id: int
+    class Config:
+        from_attributes = True
+
 # ─── PAGO ───
-class PaymentCreate(BaseModel):
-    user_id: int
+class PaymentBase(BaseModel):
     amount: float
     description: Optional[str] = None
 
-class PaymentOut(BaseModel):
-    id: int
-    amount: float
-    date: datetime
-    user_id: int
-    description: Optional[str]
+class PaymentCreate(PaymentBase):
+    client_id: int
 
+class PaymentOut(PaymentBase):
+    id: int
+    date: datetime
+    client_id: int
     class Config:
         from_attributes = True
 
 # ─── NOTIFICACIÓN ───
-class NotificationBase(BaseModel):
+class NotificationCreate(BaseModel):
     user_id: int
     message: str
 
-class NotificationCreate(NotificationBase):
-    pass
-
-class NotificationOut(NotificationBase):
+class NotificationOut(NotificationCreate):
     id: int
     created_at: datetime
-
     class Config:
         from_attributes = True

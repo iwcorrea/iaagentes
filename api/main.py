@@ -507,3 +507,21 @@ def cleanup_improvements():
 @app.get("/improvements")
 def improvements_panel():
     return {"message": "Usa el nuevo panel React"}
+
+@app.post("/v1/chat/completions")
+def chat_completions(
+    request: ChatRequest,
+    project_id: Optional[str] = Query(None),
+    scope: Optional[str] = Query("all"),
+    mode: Optional[str] = Query("full"),
+    turbo: Optional[bool] = Query(False)
+):
+    ...
+    orchestrator = AutonomousArchitectOrchestrator(workspace_path=str(project_path))
+    final_text = orchestrator.orchestrate_project(
+        user_prompt,
+        is_modification=is_modification,
+        scope=scope,
+        mode=mode,
+        turbo=turbo
+    )

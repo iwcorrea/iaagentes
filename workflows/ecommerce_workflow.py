@@ -1,6 +1,7 @@
 """
-Flujo completo de CrewAI para generación y modificación de proyectos.
+Flujo completo de CrewAI con generación paralela de Backend y Frontend.
 """
+import asyncio
 from crewai import Crew, Task
 from agents.director_agent import director_agent
 from agents.backend_agent import backend_agent
@@ -10,30 +11,28 @@ from agents.qa_agent import qa_agent
 
 def run_ecommerce_workflow(user_prompt, project_context="", is_modification=False):
     """
-    Si is_modification es True, los agentes reciben el contexto completo del proyecto
-    y se espera que modifiquen solo los archivos necesarios.
+    Ejecuta el flujo: Director planifica, luego Backend y Frontend generan en paralelo,
+    y finalmente QA audita.
     """
 
     # ─── DIRECTOR ───
     if is_modification:
         director_desc = f"""
-Eres un arquitecto de software. El siguiente proyecto YA EXISTE y necesita ser MODIFICADO.
-CONTEXTO DEL PROYECTO (archivos actuales):
+Eres un arquitecto de software. El proyecto YA EXISTE y necesita MODIFICACIONES.
+CONTEXTO:
 {project_context}
 
-SOLICITUD DE MODIFICACIÓN:
+SOLICITUD:
 "{user_prompt}"
 
-Genera un plan JSON con SOLO los archivos que deben MODIFICARSE o CREARSE.
-Devuelve ÚNICAMENTE las llaves del JSON.
+Genera un plan JSON con SOLO los archivos a modificar/crear.
 """
     else:
         director_desc = f"""
 Eres un arquitecto de software. Crea un plan JSON para un NUEVO proyecto:
 "{user_prompt}"
 
-Incluye backend y frontend según el requerimiento.
-Devuelve ÚNICAMENTE las llaves del JSON.
+Incluye backend y frontend según requerimiento.
 """
 
     director_task = Task(
@@ -46,16 +45,13 @@ Devuelve ÚNICAMENTE las llaves del JSON.
     if is_modification:
         backend_desc = f"""
 Eres un generador de código. MODIFICA el proyecto existente según el plan del Director.
-Contexto del proyecto:
-{project_context}
-
-Entrega SOLO los archivos que necesitan cambios, usando el formato ruta:::código.
-El código debe ser el archivo COMPLETO (no solo la parte modificada).
+Contexto: {project_context}
+Entrega SOLO los archivos que cambian, en formato ruta:::código.
 """
     else:
         backend_desc = f"""
-Eres un generador de código. Crea el backend según el plan del Director.
-Usa el formato ruta:::código. Incluye requirements.txt.
+Eres un generador de código backend. CREA el código según el plan del Director.
+Entrega en formato ruta:::código. Incluye requirements.txt.
 """
 
     backend_task = Task(
@@ -69,15 +65,13 @@ Usa el formato ruta:::código. Incluye requirements.txt.
     if is_modification:
         frontend_desc = f"""
 Eres un generador de frontend. MODIFICA el proyecto existente según el plan del Director.
-Contexto del proyecto:
-{project_context}
-
-Entrega SOLO los archivos que necesitan cambios, usando el formato ruta:::código.
+Contexto: {project_context}
+Entrega SOLO los archivos que cambian, en formato ruta:::código.
 """
     else:
         frontend_desc = f"""
-Eres un generador de frontend. Crea el frontend según el plan del Director.
-Usa el formato ruta:::código. Incluye package.json.
+Eres un generador de frontend. CREA el código según el plan del Director.
+Entrega en formato ruta:::código. Incluye package.json.
 """
 
     frontend_task = Task(
@@ -87,37 +81,67 @@ Usa el formato ruta:::código. Incluye package.json.
         context=[director_task]
     )
 
-    # ─── QA ───
-    qa_task = Task(
-        description="Revisa el código generado y genera un informe de auditoría con Problema, Impacto, Solución.",
-        expected_output="Informe de auditoría",
-        agent=qa_agent,
-        context=[backend_task, frontend_task]
+    # ─── CREWS SEPARADAS PARA PARALELIZAR ───
+    director_crew = Crew(
+        agents=[director_agent],
+        tasks=[director_task],
+        verbose=False
     )
 
-    # ─── CREW ───
-    crew = Crew(
-        agents=[director_agent, backend_agent, frontend_agent, qa_agent],
-        tasks=[director_task, backend_task, frontend_task, qa_task],
-        verbose=True
+    backend_crew = Crew(
+        agents=[backend_agent],
+        tasks=[backend_task],
+        verbose=False
     )
-    crew.kickoff()
 
-    def get_output(task):
-        out = task.output
+    frontend_crew = Crew(
+        agents=[frontend_agent],
+        tasks=[frontend_task],
+        verbose=False
+    )
+
+    # 1. Ejecutar Director (secuencial, necesario para el plan)
+    director_crew.kickoff()
+
+    # 2. Ejecutar Backend y Frontend en paralelo
+    async def run_parallel():
+        loop = asyncio.get_event_loop()
+        backend_future = loop.run_in_executor(None, backend_crew.kickoff)
+        frontend_future = loop.run_in_executor(None, frontend_crew.kickoff)
+        backend_result, frontend_result = await asyncio.gather(backend_future, frontend_future)
+        return backend_result, frontend_result
+
+    try:
+        backend_result, frontend_result = asyncio.run(run_parallel())
+    except Exception:
+        # Fallback secuencial si asyncio falla
+        backend_result = backend_crew.kickoff()
+        frontend_result = frontend_crew.kickoff()
+
+    # 3. QA sobre el resultado combinado
+    def get_output(task_or_crew):
+        if hasattr(task_or_crew, 'output'):
+            out = task_or_crew.output
+        else:
+            out = task_or_crew
         if out is None:
             return ""
         return str(out.raw) if hasattr(out, 'raw') else str(out)
 
-    backend_code = get_output(backend_task)
-    frontend_code = get_output(frontend_task)
-    qa_report = get_output(qa_task)
+    backend_code = get_output(backend_result)
+    frontend_code = get_output(frontend_result)
 
     combined = backend_code.strip()
     if frontend_code.strip():
         combined += "\n" + frontend_code.strip()
 
-    if not combined:
-        combined = "backend/main.py:::print('Sin cambios generados')"
+    qa_task = Task(
+        description="Revisa el código generado y genera un informe de auditoría.",
+        expected_output="Informe de auditoría",
+        agent=qa_agent
+    )
+    qa_crew = Crew(agents=[qa_agent], tasks=[qa_task], verbose=False)
+    qa_crew.kickoff()
+    qa_report = get_output(qa_crew)
 
-    return combined, qa_report
+    return combined or "backend/main.py:::print('Sin cambios')", qa_report

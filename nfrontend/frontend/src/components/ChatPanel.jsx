@@ -19,13 +19,13 @@ export default function ChatPanel() {
   const [loading, setLoading] = useState(false)
   const [scope, setScope] = useState('all')
   const [mode, setMode] = useState('full')
+  const [turbo, setTurbo] = useState(false)
   const [showGuided, setShowGuided] = useState(false)
   const [agentStatus, setAgentStatus] = useState({})
   const { activeProjectId, projectName, setActiveProjectId } = useProject()
   const bottomRef = useRef(null)
   const { showToast, ToastContainer } = useToast()
 
-  // Cargar estado de agentes cada 2 segundos mientras está cargando
   useEffect(() => {
     let interval
     if (loading) {
@@ -69,7 +69,7 @@ export default function ChatPanel() {
     setMessages(prev => [...prev, userMsg])
 
     try {
-      const params = {}
+      const params = { turbo: turbo }
       if (activeProjectId) {
         params.project_id = activeProjectId
         params.scope = scope
@@ -82,7 +82,7 @@ export default function ChatPanel() {
       const projectIdMatch = reply.match(/Proyecto ID: (\w+)/)
       if (projectIdMatch && !activeProjectId) {
         setActiveProjectId(projectIdMatch[1])
-        showToast('¡Proyecto creado con éxito!', 'success')
+        showToast('¡Proyecto creado!', 'success')
       }
       if (activeProjectId) {
         api.post(`/projects/${activeProjectId}/chat`, {
@@ -95,11 +95,7 @@ export default function ChatPanel() {
     } finally {
       setLoading(false)
     }
-  }, [input, loading, messages, activeProjectId, scope, mode, showToast, setActiveProjectId])
-
-  const placeholderText = activeProjectId
-    ? `Modificar "${projectName || activeProjectId}"...`
-    : 'Crear un nuevo proyecto...'
+  }, [input, loading, messages, activeProjectId, scope, mode, turbo, showToast, setActiveProjectId])
 
   return (
     <div className="flex flex-col h-full">
@@ -110,7 +106,7 @@ export default function ChatPanel() {
             <p className="text-xl font-semibold text-gray-300">¿Qué proyecto querés crear, parce?</p>
             <p className="text-sm text-gray-500 mt-2">
               Describí la aplicación o usá el{' '}
-              <span className="text-purple-400 font-semibold cursor-pointer underline hover:text-purple-300" onClick={() => setShowGuided(true)}>
+              <span className="text-purple-400 cursor-pointer underline" onClick={() => setShowGuided(true)}>
                 Proyecto Guiado
               </span>
             </p>
@@ -118,7 +114,7 @@ export default function ChatPanel() {
         )}
         {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[75%] px-5 py-3 rounded-2xl text-sm shadow-lg ${
+            <div className={`max-w-[75%] px-5 py-3 rounded-2xl text-sm ${
               m.role === 'user'
                 ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white'
                 : 'bg-gray-800/80 text-gray-100 border border-gray-700/50'
@@ -132,9 +128,9 @@ export default function ChatPanel() {
             <div className="bg-gray-800/80 border border-gray-700/50 px-5 py-3 rounded-2xl text-sm text-gray-300">
               <div className="flex items-center gap-2 mb-2">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
-                <span className="font-medium">Los agentes están trabajando...</span>
+                <span className="font-medium">Agentes trabajando...</span>
               </div>
-              <div className="grid grid-cols-2 gap-2 mt-2">
+              <div className="grid grid-cols-2 gap-2">
                 {Object.entries(AGENT_EMOJIS).map(([name, emoji]) => {
                   const status = agentStatus[name] || 'idle'
                   return (
@@ -155,34 +151,37 @@ export default function ChatPanel() {
         )}
         <div ref={bottomRef} />
       </div>
-      {/* Controles de ámbito y modo + input (sin cambios) */}
       <div className="p-4 border-t border-gray-700/30 bg-gray-800/30">
-        {activeProjectId && (
-          <div className="flex gap-3 mb-3">
-            <select value={scope} onChange={e => setScope(e.target.value)} className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200">
-              <option value="all">Todo el proyecto</option>
-              <option value="backend">Solo Backend</option>
-              <option value="frontend">Solo Frontend</option>
-            </select>
-            <select value={mode} onChange={e => setMode(e.target.value)} className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200">
-              <option value="full">Contexto completo</option>
-              <option value="light">Solo estructura</option>
-            </select>
-          </div>
-        )}
+        <div className="flex gap-3 mb-3">
+          {activeProjectId && (
+            <>
+              <select value={scope} onChange={e => setScope(e.target.value)} className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200">
+                <option value="all">Todo</option>
+                <option value="backend">Backend</option>
+                <option value="frontend">Frontend</option>
+              </select>
+              <select value={mode} onChange={e => setMode(e.target.value)} className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200">
+                <option value="full">Completo</option>
+                <option value="light">Ligero</option>
+              </select>
+            </>
+          )}
+          <label className="flex items-center gap-2 text-xs text-gray-400">
+            <input type="checkbox" checked={turbo} onChange={e => setTurbo(e.target.checked)} />
+            ⚡ Turbo
+          </label>
+        </div>
         <div className="flex gap-3">
           <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-            className="flex-1 bg-gray-800 border border-gray-600 rounded-xl px-5 py-3 text-sm text-gray-100 placeholder-gray-500 focus:ring-2 focus:ring-blue-500/50 outline-none transition"
-            placeholder={placeholderText} />
+            className="flex-1 bg-gray-800 border border-gray-600 rounded-xl px-5 py-3 text-sm text-gray-100 placeholder-gray-500 focus:ring-2 focus:ring-blue-500/50 outline-none"
+            placeholder={activeProjectId ? `Modificar "${projectName || activeProjectId}"...` : 'Crear nuevo proyecto...'} />
           <button onClick={send} disabled={loading}
-            className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white px-6 py-3 rounded-xl font-semibold transition shadow-lg shadow-blue-500/20 disabled:opacity-50">
+            className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white px-6 py-3 rounded-xl font-semibold transition disabled:opacity-50">
             {activeProjectId ? 'Modificar' : 'Crear'}
           </button>
         </div>
       </div>
-      {showGuided && (
-        <GuidedProjectCreator onClose={() => setShowGuided(false)} onProjectCreated={(projectId) => { setActiveProjectId(projectId); setShowGuided(false); }} />
-      )}
+      {showGuided && <GuidedProjectCreator onClose={() => setShowGuided(false)} onProjectCreated={id => { setActiveProjectId(id); setShowGuided(false); }} />}
       <ToastContainer />
     </div>
   )

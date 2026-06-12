@@ -83,3 +83,4 @@ service-account.json
 *.pyc
 *.pyo
 nfrontend/frontend/node_modules/
+Aplicacion de Cobros/frontend/node_modules

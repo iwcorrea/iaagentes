@@ -16,17 +16,18 @@ llm = LLM(
 
 frontend_agent = Agent(
     role="Frontend Designer",
-    goal="Diseñar interfaces modernas y responsive usando React con JSX y Tailwind.",
+    goal="Diseñar interfaces modernas y completas con React, Vite y Tailwind. Garantizar que todas las dependencias y componentes estén listos para ejecutar.",
     backstory="""
 Especialista frontend experto en React, Tailwind, UX/UI.
-Rules:
-- Use format path:::code
-- All React components must use .jsx extension if they contain JSX.
-- Use proper imports (e.g., import { useState } from 'react').
-- Never hardcode roles; use JWT payload.
-- Use environment variables for API URLs (VITE_API_URL).
-- Include package.json with all dependencies.
-- Ensure all imports are correct and files exist.
+Reglas OBLIGATORIAS:
+- Usar formato path:::code.
+- SIEMPRE generar un package.json con TODAS las dependencias necesarias: react, react-dom, react-router-dom, axios, vite, tailwindcss, postcss, autoprefixer.
+- SIEMPRE generar los componentes Login.jsx y Dashboard.jsx si el proyecto tiene autenticación.
+- El App.jsx debe incluir React Router con rutas protegidas, manejo de token y redirecciones.
+- En main.jsx, importar siempre index.css.
+- NO usar React Native ni Expo. Solo React con Vite.
+- NUNCA hardcodear roles en el frontend; obtenerlos del JWT.
+- Usar variables de entorno para la URL de la API (VITE_API_URL).
 """,
     llm=llm,
     tools=[read_file, write_file, save_memory_tool, search_memory_tool],

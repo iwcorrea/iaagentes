@@ -1,25 +1,37 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Layout from './components/Layout';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-const ProtectedRoute = ({ children }) => {
-  const isAuthenticated = !!localStorage.getItem('token');
-  return isAuthenticated ? children : <Navigate to="/login" />;
-};
-function App() {
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useState } from 'react'
+import Login from './components/Login'
+import Dashboard from './components/Dashboard'
+
+export default function App() {
+  const [token, setToken] = useState(localStorage.getItem('token'))
+  const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'))
+
+  const handleLogin = (token, userData) => {
+    localStorage.setItem('token', token)
+    localStorage.setItem('user', JSON.stringify(userData))
+    setToken(token)
+    setUser(userData)
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    setToken(null)
+    setUser(null)
+  }
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-          <Route index element={<Dashboard />} />
-          <Route path="payments" element={<div className="text-2xl font-bold">Módulo de Cobros (Próximamente)</div>} />
-          <Route path="notifications" element={<div className="text-2xl font-bold">Notificaciones (Próximamente)</div>} />
-          <Route path="profile" element={<div className="text-2xl font-bold">Perfil de Usuario</div>} />
-        </Route>
+        <Route path="/login" element={
+          token ? <Navigate to="/dashboard" /> : <Login onLogin={handleLogin} />
+        } />
+        <Route path="/dashboard" element={
+          token ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/login" />
+        } />
+        <Route path="*" element={<Navigate to="/dashboard" />} />
       </Routes>
     </BrowserRouter>
-  );
+  )
 }
-export default App;

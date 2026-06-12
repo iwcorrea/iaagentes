@@ -79,7 +79,6 @@ class AutonomousArchitectOrchestrator:
         self.improvement_queue = ImprovementQueue()
 
     def orchestrate_project(self, user_prompt: str, is_modification: bool = False, scope: str = "all", mode: str = "full", turbo: bool = False) -> str:
-        # Bloquear suspensión del sistema
         prevent_sleep()
         try:
             crew_code = ""
@@ -134,7 +133,10 @@ class AutonomousArchitectOrchestrator:
                     "name": final_project_id,
                     "created": datetime.now().isoformat()
                 }, indent=2), encoding='utf-8')
+
+            # ─── VALIDACIONES ───
             self._validate_integration_extended()
+            self._validate_frontend_structure()   # <-- NUEVO
             self._save_project_context()
 
             # ─── DEPENDENCIAS ───
@@ -166,6 +168,7 @@ CÓDIGO:
                                 crew_code = repaired_text
                                 set_agent_status("Repair Agent", "done")
                                 self._validate_integration_extended()
+                                self._validate_frontend_structure()
                     except TimeoutError:
                         set_agent_status("Repair Agent", "error")
                     except:
@@ -198,10 +201,9 @@ QA: {qa_report[:300] if not turbo else 'Turbo: QA omitido'}
             return report
 
         finally:
-            # Restablecer suspensión normal
             allow_sleep()
 
-    # ... (resto de métodos: _validate_integration_extended, _backup_project, etc., se mantienen igual) ...
+    # ─── VALIDACIÓN DE INTEGRIDAD EXTENDIDA ───
     def _validate_integration_extended(self):
         backend_path = Path(self.workspace_path) / "backend"
         if not backend_path.exists():
@@ -226,7 +228,7 @@ QA: {qa_report[:300] if not turbo else 'Turbo: QA omitido'}
                 pass
         missing = existing_routers - imported_routers
         if missing:
-            issues.append(f"Routers no integrados: {', '.join(missing)}")
+            issues.append(f"Routers no integrados en main.py: {', '.join(missing)}")
         for py_file in backend_path.rglob("*.py"):
             if py_file.name == "schemas.py" or py_file.name == "__init__.py":
                 continue
@@ -256,6 +258,50 @@ Devuelve archivos corregidos en formato ruta:::código.
             except:
                 pass
 
+    # ─── VALIDACIÓN DE ESTRUCTURA DEL FRONTEND ───
+    def _validate_frontend_structure(self):
+        frontend_path = Path(self.workspace_path) / "frontend"
+        if not frontend_path.exists():
+            return
+
+        required_files = {
+            "package.json": "Define las dependencias del proyecto.",
+            "vite.config.js": "Configura Vite.",
+            "src/main.jsx": "Punto de entrada de React.",
+            "src/App.jsx": "Componente principal con rutas.",
+            "src/index.css": "Estilos Tailwind.",
+            "src/components/Login.jsx": "Componente de inicio de sesión.",
+            "src/components/Dashboard.jsx": "Panel principal después del login."
+        }
+
+        missing_files = []
+        for file, desc in required_files.items():
+            if not (frontend_path / file).exists():
+                missing_files.append((file, desc))
+
+        if missing_files:
+            print(f"[ARCHITECT] ⚠️ Faltan archivos esenciales del frontend: {[f[0] for f in missing_files]}")
+            repair_prompt = f"""
+Faltan los siguientes archivos en el frontend. Generá cada uno usando el formato ruta:::código.
+{chr(10).join([f'{f[0]} – {f[1]}' for f in missing_files])}
+
+Reglas:
+- package.json debe incluir react, react-dom, react-router-dom, axios, tailwindcss, postcss, autoprefixer, vite, @vitejs/plugin-react.
+- Login.jsx y Dashboard.jsx deben ser funcionales y usar axios para la API.
+- App.jsx debe tener React Router con rutas protegidas.
+- El código debe ser moderno y listo para ejecutar.
+"""
+            try:
+                repaired = repair_agent.kickoff(repair_prompt)
+                if repaired:
+                    code = repaired.raw if hasattr(repaired, 'raw') else str(repaired)
+                    if ":::" in code:
+                        execute_plan(code, workspace_base=Path(self.workspace_path))
+                        print("[ARCHITECT] ✅ Archivos del frontend generados automáticamente.")
+            except Exception as e:
+                print(f"[ARCHITECT] Error al generar archivos del frontend: {e}")
+
+    # ─── BACKUP ───
     def _backup_project(self):
         src = Path(self.workspace_path)
         if not src.exists():
@@ -264,7 +310,9 @@ Devuelve archivos corregidos en formato ruta:::código.
         if dst.exists():
             shutil.rmtree(dst)
         shutil.copytree(src, dst)
+        print(f"[ARCHITECT] Backup creado en {dst}")
 
+    # ─── CONTEXTO COMPRIMIDO ───
     def _load_project_context_scoped(self, scope: str, mode: str) -> str:
         project_path = Path(self.workspace_path)
         if not project_path.exists():

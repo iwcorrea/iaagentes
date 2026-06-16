@@ -34,6 +34,7 @@ from core.improvement_queue import ImprovementQueue
 from core.meta_agent import MetaAgent
 from core.plan_validator import PlanValidator
 from core.project_auditor import ProjectAuditor
+from core.prompt_integrity import PromptIntegrity
 from workflows.ecommerce_workflow import run_ecommerce_workflow
 from agents.repair_agent import repair_agent
 from agents.dependency_agent import dependency_agent
@@ -68,6 +69,13 @@ class AutonomousArchitectOrchestrator:
     def orchestrate_project(self, user_prompt: str, is_modification: bool = False, scope: str = "all", mode: str = "full", turbo: bool = False) -> str:
         prevent_sleep()
         try:
+            # ─── VALIDACIÓN DEL PROMPT ───
+            validator = PromptIntegrity()
+            validation = validator.validate(user_prompt)
+            if not validation["valid"]:
+                print("[ARCHITECT] ⚠️ Prompt ambiguo o incompleto. Aplicando mejoras automáticas...")
+                user_prompt = validator.build_improved_prompt(user_prompt)
+
             crew_code = qa_report = ""
             final_project_id = Path(self.workspace_path).name
             set_all_status("idle")
@@ -166,7 +174,30 @@ class AutonomousArchitectOrchestrator:
         finally:
             allow_sleep()
 
-    # ... (métodos auxiliares existentes: _validate_integration_extended, _backup_project, etc.) ...
+    def _validate_prompt_integrity(self, user_prompt: str) -> dict:
+        validator = PromptIntegrity()
+        return validator.validate(user_prompt)
+
+    def _build_improved_prompt(self, user_prompt: str) -> str:
+        validator = PromptIntegrity()
+        return validator.build_improved_prompt(user_prompt)
 
     def _generate_demo_plan(self, prompt):
         return 'backend/main.py:::from fastapi import FastAPI\napp = FastAPI()\n\n@app.get("/")\ndef root():\n    return {"message": "Hello World"}\n'
+
+    # --- Métodos auxiliares (deben existir en tu archivo actual) ---
+    def _backup_project(self):
+        src = Path(self.workspace_path)
+        if not src.exists(): return
+        dst = src.parent / f"{src.name}_backup"
+        if dst.exists(): shutil.rmtree(dst)
+        shutil.copytree(src, dst)
+
+    def _load_project_context_scoped(self, scope: str, mode: str) -> str:
+        return ""
+
+    def _save_project_context(self):
+        pass
+
+    def _ensure_dependencies(self):
+        pass

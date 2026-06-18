@@ -130,12 +130,18 @@ class AutonomousArchitectOrchestrator:
                         print(f"[ARCHITECT] Error al reparar: {e}")
 
             self._save_project_context()
+
+            # ─── DEPENDENCIAS ───
             set_agent_status("Dependency Manager", "working")
             try:
                 self._ensure_dependencies()
                 set_agent_status("Dependency Manager", "done")
             except:
                 set_agent_status("Dependency Manager", "error")
+
+            # ─── LIMPIEZA DE CÓDIGO (BLACK, ISORT, BANDIT) ───
+            print("[ARCHITECT] Aplicando herramientas de limpieza...")
+            self._clean_generated_code()
 
             if not turbo and qa_report and "No se ejecutó QA" not in qa_report and self.crew_available:
                 for iteration in range(3):
@@ -174,6 +180,15 @@ class AutonomousArchitectOrchestrator:
         finally:
             allow_sleep()
 
+    def _clean_generated_code(self):
+        """Aplica herramientas de limpieza (black, isort, bandit) al backend generado."""
+        backend_path = Path(self.workspace_path) / "backend"
+        if not backend_path.exists():
+            return
+        from tools.code_cleaner import clean_backend_code
+        result = clean_backend_code(str(backend_path))
+        print(f"[ARCHITECT] Limpieza de código completada:\n{result}")
+
     def _validate_prompt_integrity(self, user_prompt: str) -> dict:
         validator = PromptIntegrity()
         return validator.validate(user_prompt)
@@ -185,7 +200,6 @@ class AutonomousArchitectOrchestrator:
     def _generate_demo_plan(self, prompt):
         return 'backend/main.py:::from fastapi import FastAPI\napp = FastAPI()\n\n@app.get("/")\ndef root():\n    return {"message": "Hello World"}\n'
 
-    # --- Métodos auxiliares (deben existir en tu archivo actual) ---
     def _backup_project(self):
         src = Path(self.workspace_path)
         if not src.exists(): return
@@ -194,10 +208,54 @@ class AutonomousArchitectOrchestrator:
         shutil.copytree(src, dst)
 
     def _load_project_context_scoped(self, scope: str, mode: str) -> str:
-        return ""
+        project_path = Path(self.workspace_path)
+        if not project_path.exists():
+            return ""
+        lines = []
+        for f in project_path.rglob("*"):
+            if f.is_file() and f.name not in ["project_context.json", "chat.json", "project.json"]:
+                rel = str(f.relative_to(project_path))
+                if scope == "backend" and not rel.startswith("backend"): continue
+                if scope == "frontend" and not rel.startswith("frontend"): continue
+                if mode == "light":
+                    lines.append(f"- {rel}")
+                else:
+                    try:
+                        content = f.read_text(encoding='utf-8')[:1000]
+                        lines.append(f"=== {rel} ===\n{content}")
+                    except:
+                        lines.append(f"=== {rel} ===\n[binario]")
+        return "\n".join(lines)
 
     def _save_project_context(self):
         pass
 
     def _ensure_dependencies(self):
-        pass
+        backend_path = Path(self.workspace_path) / "backend"
+        frontend_path = Path(self.workspace_path) / "frontend"
+        if backend_path.exists():
+            req_file = backend_path / "requirements.txt"
+            if not req_file.exists() or len(req_file.read_text(encoding='utf-8').strip()) < 20:
+                self._fix_dependencies(backend_path, "backend")
+        if frontend_path.exists():
+            pkg_file = frontend_path / "package.json"
+            if not pkg_file.exists() or len(pkg_file.read_text(encoding='utf-8').strip()) < 20:
+                self._fix_dependencies(frontend_path, "frontend")
+
+    def _fix_dependencies(self, base_path: Path, project_type: str):
+        code_files = []
+        for ext in ['.py', '.jsx', '.js']:
+            for f in base_path.rglob(f'*{ext}'):
+                if f.name not in ["requirements.txt", "package.json"]:
+                    code_files.append(str(f.relative_to(base_path)))
+        if not code_files:
+            return
+        prompt = f"Genera archivo de dependencias para {project_type} con archivos: {', '.join(code_files[:10])}. Formato: path:::code."
+        try:
+            response = dependency_agent.kickoff(prompt)
+            if response:
+                dep_code = response.raw if hasattr(response, 'raw') else str(response)
+                if dep_code:
+                    execute_plan(dep_code, workspace_base=Path(self.workspace_path))
+        except:
+            pass

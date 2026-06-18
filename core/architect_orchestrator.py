@@ -8,6 +8,7 @@ from pathlib import Path
 from datetime import datetime
 import concurrent.futures
 
+# ─── BLOQUEO DE SUSPENSIÓN (Windows) ───
 if sys.platform == 'win32':
     ES_CONTINUOUS = 0x80000000
     ES_SYSTEM_REQUIRED = 0x00000001
@@ -37,7 +38,7 @@ from core.project_auditor import ProjectAuditor
 from core.prompt_integrity import PromptIntegrity
 from workflows.ecommerce_workflow import run_ecommerce_workflow
 from agents.repair_agent import repair_agent
-from agents.dependency_agent import dependency_agent
+from agents.dependency_agent import dependency_agent, get_cached_dependencies, add_to_cache
 from core.agent_status import set_all_status, set_agent_status
 
 CREWAI_AVAILABLE = True
@@ -143,11 +144,18 @@ class AutonomousArchitectOrchestrator:
             print("[ARCHITECT] Aplicando herramientas de limpieza...")
             self._clean_generated_code()
 
+            # ─── REPARACIÓN ITERATIVA CON CONTEXTO REDUCIDO Y DETECCIÓN DE LÍMITE ───
             if not turbo and qa_report and "No se ejecutó QA" not in qa_report and self.crew_available:
                 for iteration in range(3):
                     set_agent_status("Repair Agent", "working")
                     try:
-                        repaired_code = run_with_timeout(repair_agent.kickoff, AGENT_TIMEOUT, f"CORRIGE el código según el informe de auditoría. Formato ruta:::código.\n\nINFORME:\n{qa_report}\n\nCÓDIGO:\n{crew_code}")
+                        # Construir contexto reducido para no saturar los límites de tokens
+                        reduced_context = self._build_reduced_context(crew_code)
+                        repair_prompt = f"""CORRIGE el código según el informe de auditoría. Formato ruta:::código.
+                        INFORME: {qa_report[:500]}
+                        CÓDIGO (resumen): {reduced_context}
+                        """
+                        repaired_code = run_with_timeout(repair_agent.kickoff, AGENT_TIMEOUT, repair_prompt)
                         if repaired_code and not str(repaired_code).isspace():
                             repaired_text = repaired_code.raw if hasattr(repaired_code, 'raw') else str(repaired_code)
                             if repaired_text:
@@ -156,8 +164,13 @@ class AutonomousArchitectOrchestrator:
                                 set_agent_status("Repair Agent", "done")
                     except TimeoutError:
                         set_agent_status("Repair Agent", "error")
-                    except:
-                        set_agent_status("Repair Agent", "error")
+                    except Exception as e:
+                        if self._is_rate_limited(str(e)):
+                            print("[ARCHITECT] ⚠️ Límite diario de modelos gratuitos alcanzado. Deteniendo reparaciones.")
+                            set_agent_status("Repair Agent", "error")
+                            break  # Salir del bucle inmediatamente
+                        else:
+                            set_agent_status("Repair Agent", "error")
                     if "error" not in qa_report.lower() and "vulnerabilidad" not in qa_report.lower():
                         break
 
@@ -179,6 +192,25 @@ class AutonomousArchitectOrchestrator:
             return report
         finally:
             allow_sleep()
+
+    def _is_rate_limited(self, error_message: str) -> bool:
+        """Detecta si el error es por límite diario de modelos gratuitos."""
+        return "free-models-per-day" in error_message or "Rate limit exceeded" in error_message
+
+    def _build_reduced_context(self, crew_code: str) -> str:
+        """Reduce el contexto enviado a los agentes para no exceder límites de tokens."""
+        lines = crew_code.split('\n')
+        reduced = []
+        for line in lines:
+            if ':::' in line:
+                parts = line.split(':::', 1)
+                reduced.append(f"{parts[0]}:::")
+                code_lines = parts[1].split('\n')[:3]
+                reduced.append('\n'.join(code_lines))
+                reduced.append('...')
+            else:
+                reduced.append(line[:200])
+        return '\n'.join(reduced[:50])  # Máximo 50 líneas
 
     def _clean_generated_code(self):
         """Aplica herramientas de limpieza (black, isort, bandit) al backend generado."""
@@ -250,6 +282,32 @@ class AutonomousArchitectOrchestrator:
                     code_files.append(str(f.relative_to(base_path)))
         if not code_files:
             return
+
+        # Extraer imports conocidos para usar caché
+        known_imports = set()
+        for f in code_files:
+            full_path = base_path / f
+            try:
+                content = full_path.read_text(encoding='utf-8')
+                if f.endswith('.py'):
+                    import_matches = re.findall(r'^(?:from|import)\s+(\w+)', content, re.MULTILINE)
+                    known_imports.update(import_matches)
+                elif f.endswith(('.js', '.jsx')):
+                    import_matches = re.findall(r'import\s+.*?from\s+[\'"]([\w@/.-]+)', content)
+                    known_imports.update(import_matches)
+            except:
+                pass
+
+        # Intentar usar caché
+        cached = get_cached_dependencies(list(known_imports))
+        if cached and len(cached) >= len(known_imports) * 0.8:
+            print(f"[ARCHITECT] Usando caché para dependencias de {project_type}")
+            if project_type == "backend":
+                deps = "\n".join(sorted(set(cached.values())))
+                execute_plan(f"backend/requirements.txt:::{deps}", workspace_base=Path(self.workspace_path))
+            return
+
+        # Delegar al agente si no hay caché suficiente
         prompt = f"Genera archivo de dependencias para {project_type} con archivos: {', '.join(code_files[:10])}. Formato: path:::code."
         try:
             response = dependency_agent.kickoff(prompt)
@@ -257,5 +315,8 @@ class AutonomousArchitectOrchestrator:
                 dep_code = response.raw if hasattr(response, 'raw') else str(response)
                 if dep_code:
                     execute_plan(dep_code, workspace_base=Path(self.workspace_path))
-        except:
-            pass
+                    # Alimentar caché con mapeo simple (import -> nombre de paquete base)
+                    for imp in known_imports:
+                        add_to_cache({imp: imp})
+        except Exception as e:
+            print(f"[ARCHITECT] Error generando dependencias: {e}")

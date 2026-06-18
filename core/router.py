@@ -1,15 +1,19 @@
 def detect_intent(prompt: str) -> str:
     prompt_lower = prompt.lower()
-    if any(word in prompt_lower for word in ["ejecuta", "instala", "pip install", "npm install"]):
+    
+    # Terminal solo si son comandos literales, no descripciones de proyectos
+    terminal_triggers = ["pip install", "npm install", "corre el comando", "ejecuta el script"]
+    if any(trigger in prompt_lower for trigger in terminal_triggers):
         return "terminal"
-    if any(word in prompt_lower for word in [
-        "proyecto", "backend", "sistema", "app", "api",
-        "web", "frontend", "aplicación", "ecommerce", "tienda",
-        "inventario", "reservas", "hotel", "blog", "cms",
-        "microservicio", "rest", "graphql", "fastapi", "django"
-    ]):
-        return "analysis"
-    if ("archivo" in prompt_lower and "crea" in prompt_lower) or \
-       any(ext in prompt_lower for ext in [".py", ".js", ".jsx", ".ts"]):
+    
+    # Si el prompt pide explícitamente crear un archivo suelto (sin contexto de proyecto)
+    if ("archivo" in prompt_lower and "crea" in prompt_lower) and not any(
+        word in prompt_lower for word in [
+            "proyecto", "app", "aplicación", "sistema", "web", "api", "backend", "frontend",
+            "fullstack", "full-stack", "móvil", "mobile", "landing", "página", "servicio"
+        ]
+    ):
         return "create_file"
-    return "analysis" # Fallback seguro para proyectos
+    
+    # Todo lo demás (incluyendo descripciones de proyectos) va a los agentes
+    return "analysis"

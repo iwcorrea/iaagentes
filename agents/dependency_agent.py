@@ -12,7 +12,7 @@ llm = LLM(
     stop=[]
 )
 
-# ─── Caché simple para dependencias ───
+# Caché simple para dependencias
 _dep_cache = {}
 
 def get_cached_dependencies(imports: list) -> dict:
@@ -39,7 +39,7 @@ Rules:
 - NEVER add explanations or markdown.
 - If you already know a dependency for an import (cache hit), reuse it without calling the LLM.
 """,
-    verbose=False,
+    verbose=True,
     allow_delegation=False,
     llm=llm
 )

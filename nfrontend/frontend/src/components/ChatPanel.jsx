@@ -1,8 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import api from '../api/axios'
 import { useProject } from '../context/ProjectContext'
-import { useToast } from '../hooks/useToast'
-import GuidedProjectCreator from './GuidedProjectCreator'
 
 const AGENT_EMOJIS = {
   'Director IA': '🧠',
@@ -28,12 +26,10 @@ export default function ChatPanel() {
   const [scope, setScope] = useState('all')
   const [mode, setMode] = useState('full')
   const [turbo, setTurbo] = useState(false)
-  const [showGuided, setShowGuided] = useState(false)
   const [agentStatus, setAgentStatus] = useState({})
   const [progressMessages, setProgressMessages] = useState([])
   const { activeProjectId, projectName, setActiveProjectId, chatMessages, setChatMessages } = useProject()
   const bottomRef = useRef(null)
-  const { showToast, ToastContainer } = useToast()
 
   // Polling del estado de los agentes
   useEffect(() => {
@@ -46,21 +42,19 @@ export default function ChatPanel() {
           const allAgents = teams.flatMap(t => t.agents)
           const statusMap = {}
           allAgents.forEach(a => { statusMap[a.name] = a.status })
-          setAgentStatus(prev => {
-            if (JSON.stringify(prev) === JSON.stringify(statusMap)) return prev
-            const msgs = []
-            Object.entries(statusMap).forEach(([name, status]) => {
-              if (status === 'working') {
-                msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ${AGENT_TASKS[name] || 'Trabajando...'}`)
-              } else if (status === 'done') {
-                msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ✅ Completado`)
-              } else if (status === 'error') {
-                msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ❌ Error`)
-              }
-            })
-            setProgressMessages(msgs)
-            return statusMap
+          setAgentStatus(statusMap)
+          
+          const msgs = []
+          Object.entries(statusMap).forEach(([name, status]) => {
+            if (status === 'working') {
+              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ${AGENT_TASKS[name] || 'Trabajando...'}`)
+            } else if (status === 'done') {
+              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ✅ Completado`)
+            } else if (status === 'error') {
+              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ❌ Error`)
+            }
           })
+          setProgressMessages(msgs)
         } catch {}
       }, 2000)
     } else {
@@ -99,18 +93,16 @@ export default function ChatPanel() {
       const projectIdMatch = reply.match(/Proyecto ID: (\w+)/)
       if (projectIdMatch && !activeProjectId) {
         setActiveProjectId(projectIdMatch[1])
-        showToast('¡Proyecto creado!', 'success')
       }
       if (activeProjectId) {
-        api.post(`/projects/${activeProjectId}/chat`, { messages: finalMessages })
+        api.post(`/projects/${activeProjectId}/chat`, { messages: finalMessages }).catch(() => {})
       }
     } catch (err) {
-      showToast('Error al comunicarse con los agentes', 'error')
       setChatMessages(prev => [...prev, { role: 'assistant', content: '❌ Error de conexión' }])
     } finally {
       setLoading(false)
     }
-  }, [input, loading, chatMessages, activeProjectId, scope, mode, turbo, showToast, setActiveProjectId, setChatMessages])
+  }, [input, loading, chatMessages, activeProjectId, scope, mode, turbo, setActiveProjectId, setChatMessages])
 
   const placeholderText = activeProjectId
     ? `Modificar "${projectName || activeProjectId}"...`
@@ -123,12 +115,7 @@ export default function ChatPanel() {
           <div className="text-center text-gray-500 mt-20">
             <div className="text-6xl mb-4">🧠</div>
             <p className="text-xl font-semibold text-gray-300">¿Qué proyecto querés crear, parce?</p>
-            <p className="text-sm text-gray-500 mt-2">
-              Describí la aplicación o usá el{' '}
-              <span className="text-purple-400 cursor-pointer underline" onClick={() => setShowGuided(true)}>
-                Proyecto Guiado
-              </span>
-            </p>
+            <p className="text-sm text-gray-500 mt-2">Describí la aplicación y los agentes se pondrán a trabajar.</p>
           </div>
         )}
         {chatMessages.map((m, i) => (
@@ -194,8 +181,6 @@ export default function ChatPanel() {
           </button>
         </div>
       </div>
-      {showGuided && <GuidedProjectCreator onClose={() => setShowGuided(false)} onProjectCreated={id => { setActiveProjectId(id); setShowGuided(false); }} />}
-      <ToastContainer />
     </div>
   )
 }

@@ -6,7 +6,7 @@ const ProjectContext = createContext()
 export function ProjectProvider({ children }) {
   const [activeProjectId, setActiveProjectId] = useState(null)
   const [projectName, setProjectName] = useState('')
-  const [chatMessages, setChatMessages] = useState([])   // <-- nuevo
+  const [chatMessages, setChatMessages] = useState([])
 
   useEffect(() => {
     if (activeProjectId) {
@@ -32,7 +32,7 @@ export function ProjectProvider({ children }) {
     <ProjectContext.Provider value={{ 
       activeProjectId, setActiveProjectId, 
       projectName, updateProjectName,
-      chatMessages, setChatMessages   // <-- exportamos
+      chatMessages, setChatMessages
     }}>
       {children}
     </ProjectContext.Provider>

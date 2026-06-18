@@ -25,6 +25,7 @@ from core.project_manager import ProjectManager
 from core.quality_metrics import analyze_quality
 from core.config_assistant import ConfigAssistant
 from core.guided_builder import GuidedBuilder
+from core.prompt_guard import validate_prompt
 
 app = FastAPI()
 
@@ -152,20 +153,12 @@ def chat_completions(
 
 # ─── VALIDACIÓN DE PROMPT (SIN GENERAR) ───
 @app.post("/api/validate-prompt")
-def validate_prompt(data: dict):
+def validate_prompt_endpoint(data: dict):
     prompt = data.get("prompt", "")
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt requerido")
-    from core.prompt_integrity import PromptIntegrity
-    validator = PromptIntegrity()
-    validation = validator.validate(prompt)
-    return {
-        "valid": validation["valid"],
-        "warnings": validation["warnings"],
-        "suggestions": validation["suggestions"],
-        "detected_types": validation["detected_types"],
-        "improved_prompt": validator.build_improved_prompt(prompt) if not validation["valid"] else prompt
-    }
+    validation = validate_prompt(prompt)
+    return validation
 
 # ─── ASISTENTE GUIADO ───
 @app.get("/api/guided-templates")

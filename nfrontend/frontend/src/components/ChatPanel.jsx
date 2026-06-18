@@ -30,6 +30,17 @@ export default function ChatPanel() {
   const [progressMessages, setProgressMessages] = useState([])
   const { activeProjectId, projectName, setActiveProjectId, chatMessages, setChatMessages } = useProject()
   const bottomRef = useRef(null)
+  const toastRef = useRef(null)
+
+  const showToast = (message, type = 'info') => {
+    const toast = document.createElement('div')
+    toast.className = `fixed bottom-4 right-4 z-50 px-4 py-2 rounded-lg text-white text-sm shadow-lg ${
+      type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-green-500' : 'bg-blue-500'
+    }`
+    toast.textContent = message
+    document.body.appendChild(toast)
+    setTimeout(() => toast.remove(), 4000)
+  }
 
   // Polling del estado de los agentes
   useEffect(() => {
@@ -71,6 +82,18 @@ export default function ChatPanel() {
   const send = useCallback(async () => {
     const text = input.trim()
     if (!text || loading) return
+
+    // Validar prompt antes de enviar
+    try {
+      const validation = await api.post('/api/validate-prompt', { prompt: text })
+      if (!validation.data.valid) {
+        showToast(validation.data.reason, 'error')
+        return
+      }
+    } catch (err) {
+      // Si el endpoint no existe, continuar con el prompt original
+    }
+
     setInput('')
     setLoading(true)
 
@@ -93,11 +116,13 @@ export default function ChatPanel() {
       const projectIdMatch = reply.match(/Proyecto ID: (\w+)/)
       if (projectIdMatch && !activeProjectId) {
         setActiveProjectId(projectIdMatch[1])
+        showToast('¡Proyecto creado!', 'success')
       }
       if (activeProjectId) {
         api.post(`/projects/${activeProjectId}/chat`, { messages: finalMessages }).catch(() => {})
       }
     } catch (err) {
+      showToast('Error al comunicarse con los agentes', 'error')
       setChatMessages(prev => [...prev, { role: 'assistant', content: '❌ Error de conexión' }])
     } finally {
       setLoading(false)

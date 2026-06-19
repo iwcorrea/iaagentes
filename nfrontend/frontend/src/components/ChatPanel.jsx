@@ -2,23 +2,15 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import api from '../api/axios'
 import { useProject } from '../context/ProjectContext'
 
-const AGENT_EMOJIS = {
-  'Director IA': '🧠',
-  'Code Generator': '💻',
-  'Frontend Designer': '🎨',
-  'QA Auditor': '🔍',
-  'Repair Agent': '🔧',
-  'Dependency Manager': '📦'
-}
-
-const AGENT_TASKS = {
-  'Director IA': 'Planificando arquitectura...',
-  'Code Generator': 'Escribiendo backend...',
-  'Frontend Designer': 'Diseñando interfaz...',
-  'QA Auditor': 'Auditando código...',
-  'Repair Agent': 'Reparando errores...',
-  'Dependency Manager': 'Gestionando dependencias...'
-}
+const PHASES = [
+  { progress: 5, agent: 'Director IA', task: 'Analizando prompt...' },
+  { progress: 20, agent: 'Director IA', task: 'Planificando arquitectura...' },
+  { progress: 40, agent: 'Code Generator', task: 'Generando backend...' },
+  { progress: 60, agent: 'Frontend Designer', task: 'Diseñando interfaz...' },
+  { progress: 80, agent: 'QA Auditor', task: 'Revisando código...' },
+  { progress: 95, agent: 'Sistema', task: 'Aplicando mejoras finales...' },
+  { progress: 100, agent: 'Sistema', task: '¡Proyecto completado!' },
+]
 
 export default function ChatPanel() {
   const [input, setInput] = useState('')
@@ -27,52 +19,81 @@ export default function ChatPanel() {
   const [mode, setMode] = useState('full')
   const [turbo, setTurbo] = useState(false)
   const [brainModel, setBrainModel] = useState('cloud-coder')
-  const [agentStatus, setAgentStatus] = useState({})
+  const [currentPhase, setCurrentPhase] = useState(null)
   const [progressMessages, setProgressMessages] = useState([])
   const [agentProgress, setAgentProgress] = useState(0)
   const [finalReport, setFinalReport] = useState(null)
+  const [connectionStatus, setConnectionStatus] = useState('checking')
   const { activeProjectId, projectName, setActiveProjectId, chatMessages, setChatMessages } = useProject()
   const bottomRef = useRef(null)
 
   const showToast = (message, type = 'info') => {
     const toast = document.createElement('div')
-    toast.className = `fixed bottom-4 right-4 z-50 px-4 py-2 rounded-lg text-white text-sm shadow-lg ${
+    toast.className = `fixed bottom-4 right-4 z-50 px-4 py-2 rounded-lg text-white text-sm shadow-lg animate-slide-up ${
       type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-green-500' : 'bg-blue-500'
     }`
     toast.textContent = message
     document.body.appendChild(toast)
-    setTimeout(() => toast.remove(), 4000)
+    setTimeout(() => {
+      toast.classList.add('animate-slide-down')
+      setTimeout(() => toast.remove(), 300)
+    }, 4000)
   }
 
+  // Verificar estado de conexión
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        const res = await api.get('/')
+        if (res.data.status === 'ok') {
+          // Verificar Ollama
+          try {
+            await api.get('/api/agents')
+            setConnectionStatus('connected')
+          } catch {
+            setConnectionStatus('limited')
+          }
+        }
+      } catch {
+        setConnectionStatus('disconnected')
+      }
+    }
+    checkConnection()
+    const interval = setInterval(checkConnection, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Polling del progreso
   useEffect(() => {
     let interval
     if (loading) {
       interval = setInterval(async () => {
         try {
           const res = await api.get('/api/agents')
-          const teams = res.data.teams || []
-          const allAgents = teams.flatMap(t => t.agents)
-          const statusMap = {}
-          allAgents.forEach(a => { statusMap[a.name] = a.status })
-          setAgentStatus(statusMap)
-          setAgentProgress(res.data.progress || 0)
+          const progress = res.data.progress || 0
+          setAgentProgress(progress)
+          
+          // Determinar fase actual
+          const phase = PHASES.find(p => progress <= p.progress) || PHASES[PHASES.length - 1]
+          setCurrentPhase(phase)
           
           const msgs = []
-          Object.entries(statusMap).forEach(([name, status]) => {
-            const task = allAgents.find(a => a.name === name)?.current_task || ''
-            if (status === 'working') {
-              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ${task || AGENT_TASKS[name] || 'Trabajando...'}`)
-            } else if (status === 'done') {
-              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ✅ ${task || 'Completado'}`)
-            } else if (status === 'error') {
-              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ❌ ${task || 'Error'}`)
+          const teams = res.data.teams || []
+          const allAgents = teams.flatMap(t => t.agents)
+          allAgents.forEach(a => {
+            if (a.status === 'working') {
+              msgs.push(`${a.emoji} ${a.name}: ${a.current_task || 'Trabajando...'}`)
+            } else if (a.status === 'done') {
+              msgs.push(`${a.emoji} ${a.name}: ✅ Completado`)
+            } else if (a.status === 'error') {
+              msgs.push(`${a.emoji} ${a.name}: ❌ Error`)
             }
           })
           setProgressMessages(msgs)
         } catch {}
       }, 2000)
     } else {
-      setAgentStatus({})
+      setCurrentPhase(null)
       setProgressMessages([])
       setAgentProgress(0)
     }
@@ -130,6 +151,17 @@ export default function ChatPanel() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Barra de estado de conexión */}
+      <div className={`px-4 py-1 text-xs text-center ${
+        connectionStatus === 'connected' ? 'bg-green-900/50 text-green-400' :
+        connectionStatus === 'limited' ? 'bg-yellow-900/50 text-yellow-400' :
+        'bg-red-900/50 text-red-400'
+      }`}>
+        {connectionStatus === 'connected' && '🟢 Sistema conectado'}
+        {connectionStatus === 'limited' && '🟡 OpenRouter con rate‑limit'}
+        {connectionStatus === 'disconnected' && '🔴 Sin conexión al servidor'}
+      </div>
+
       <div className="flex-1 overflow-y-auto space-y-4 p-4">
         {chatMessages.length === 0 && !loading && (
           <div className="text-center text-gray-500 mt-20">
@@ -154,7 +186,9 @@ export default function ChatPanel() {
             <div className="bg-gray-800/80 border border-gray-700/50 px-5 py-3 rounded-2xl text-sm text-gray-300 max-w-[80%] w-full">
               <div className="flex items-center gap-2 mb-3">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
-                <span className="font-medium">Los agentes están trabajando...</span>
+                <span className="font-medium">
+                  {currentPhase ? currentPhase.task : 'Los agentes están trabajando...'}
+                </span>
               </div>
               <div className="w-full bg-gray-700 rounded-full h-2 mb-3">
                 <div

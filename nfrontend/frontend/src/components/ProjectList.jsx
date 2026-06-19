@@ -6,12 +6,12 @@ import GuidedProjectCreator from './GuidedProjectCreator'
 export default function ProjectList() {
   const [projects, setProjects] = useState([])
   const [showGuided, setShowGuided] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(null)
   const { setActiveProjectId } = useProject()
 
   const load = async () => {
     try {
       const res = await api.get('/projects')
-      // El backend ahora devuelve { id, name } para cada proyecto
       setProjects(res.data.projects || [])
     } catch (err) {
       console.error('Error al cargar proyectos:', err)
@@ -20,6 +20,12 @@ export default function ProjectList() {
 
   useEffect(() => { load() }, [])
 
+  const handleDelete = async (id) => {
+    // Por ahora solo ocultamos (no hay endpoint DELETE)
+    setProjects(prev => prev.filter(p => p.id !== id))
+    setDeleteConfirm(null)
+  }
+
   const handleProjectCreated = (projectId) => {
     setActiveProjectId(projectId)
     load()
@@ -27,7 +33,6 @@ export default function ProjectList() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Encabezado y botones */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-3xl font-bold text-gray-100">📁 Proyectos</h2>
@@ -50,7 +55,6 @@ export default function ProjectList() {
         </div>
       </div>
 
-      {/* Lista de proyectos */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {projects.length === 0 ? (
           <div className="col-span-full flex flex-col items-center justify-center py-20 text-gray-500">
@@ -78,19 +82,12 @@ export default function ProjectList() {
                     <p className="text-xs text-gray-500 font-mono mt-0.5">{project.id}</p>
                   </div>
                 </div>
-                {/* Botón de renombrar rápido */}
                 <button
-                  onClick={() => {
-                    const newName = prompt('Nuevo nombre para el proyecto:', project.name)
-                    if (newName && newName.trim()) {
-                      api.put(`/projects/${project.id}/name`, { name: newName.trim() })
-                        .then(() => load())
-                    }
-                  }}
-                  className="text-gray-600 hover:text-blue-400 transition opacity-0 group-hover:opacity-100"
-                  title="Renombrar"
+                  onClick={() => setDeleteConfirm(project.id)}
+                  className="text-gray-600 hover:text-red-400 transition opacity-0 group-hover:opacity-100"
+                  title="Eliminar proyecto"
                 >
-                  ✏️
+                  🗑️
                 </button>
               </div>
               <div className="flex gap-3 mt-auto">
@@ -106,7 +103,20 @@ export default function ProjectList() {
         )}
       </div>
 
-      {/* Modal del asistente guiado */}
+      {/* Modal de confirmación de eliminación */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 max-w-md text-center">
+            <p className="text-gray-200 mb-4">¿Eliminar el proyecto <span className="font-mono text-blue-400">{deleteConfirm}</span>?</p>
+            <p className="text-sm text-gray-400 mb-6">Esta acción no se puede deshacer.</p>
+            <div className="flex gap-4 justify-center">
+              <button onClick={() => setDeleteConfirm(null)} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">Cancelar</button>
+              <button onClick={() => handleDelete(deleteConfirm)} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg">Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showGuided && (
         <GuidedProjectCreator
           onClose={() => setShowGuided(false)}

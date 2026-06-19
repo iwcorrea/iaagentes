@@ -10,9 +10,11 @@ export function ProjectProvider({ children }) {
 
   useEffect(() => {
     if (activeProjectId) {
+      // Cargar nombre
       api.get(`/projects/${activeProjectId}/name`)
         .then(res => setProjectName(res.data.name || activeProjectId))
         .catch(() => setProjectName(activeProjectId))
+      // Cargar historial de chat
       api.get(`/projects/${activeProjectId}/chat`)
         .then(res => setChatMessages(res.data.messages || []))
         .catch(() => setChatMessages([]))

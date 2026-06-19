@@ -5,6 +5,7 @@ import re
 import shutil
 import ctypes
 import importlib
+import time
 from pathlib import Path
 from datetime import datetime
 import concurrent.futures
@@ -41,6 +42,7 @@ from core.agent_status import set_all_status, set_agent_status, set_progress
 
 CREWAI_AVAILABLE = True
 AGENT_TIMEOUT = 90
+MAX_RATE_LIMIT_RETRIES = 3  # Intentos antes de abortar una fase
 
 class TimeoutError(Exception): pass
 
@@ -64,7 +66,8 @@ class AutonomousArchitectOrchestrator:
         self.agent_registry.register(CodeAgent(memory=self.memory))
         self.crew_available = CREWAI_AVAILABLE
         self.improvement_queue = ImprovementQueue()
-        self.generated_files = []  # Registro de archivos creados en esta sesión
+        self.generated_files = []  # Archivos guardados en esta sesión
+        self.rate_limit_hits = 0   # Contador de rate‑limits consecutivos
 
     def _get_agents(self):
         importlib.reload(sys.modules.get("agents.director_agent", None) or importlib.import_module("agents.director_agent"))
@@ -86,6 +89,7 @@ class AutonomousArchitectOrchestrator:
     def orchestrate_project(self, user_prompt: str, is_modification: bool = False, scope: str = "all", mode: str = "full", turbo: bool = False) -> str:
         prevent_sleep()
         self.generated_files = []
+        self.rate_limit_hits = 0
         try:
             director_agent, backend_agent, frontend_agent, qa_agent, repair_agent, dependency_agent = self._get_agents()
 
@@ -110,15 +114,13 @@ class AutonomousArchitectOrchestrator:
                 set_progress(10)
                 set_all_status("working")
                 try:
-                    crew_code, qa_report = run_with_timeout(
+                    crew_code, qa_report = self._run_with_rate_limit_retry(
                         self._run_ecommerce_workflow,
-                        AGENT_TIMEOUT*2,
                         user_prompt, project_context, is_modification,
                         director_agent, backend_agent, frontend_agent, qa_agent
                     )
                     if not crew_code or crew_code.isspace():
                         raise ValueError("El flujo CrewAI no generó código.")
-                    # Guardar archivos inmediatamente después de generarlos
                     self._save_incremental(crew_code)
                     set_agent_status("Director IA", "done", "Plan completado")
                     set_agent_status("Code Generator", "done", "Backend generado")
@@ -129,7 +131,9 @@ class AutonomousArchitectOrchestrator:
                     set_all_status("error", "Timeout en generación")
                     crew_code = self._generate_demo_plan(user_prompt)
                     qa_report = "Timeout en generación."
-                except Exception:
+                except Exception as e:
+                    if self._is_rate_limited(str(e)):
+                        return self._build_rate_limit_report(final_project_id)
                     set_all_status("error", "Error en generación")
                     crew_code = self._generate_demo_plan(user_prompt)
                     qa_report = "Error en generación."
@@ -144,91 +148,37 @@ class AutonomousArchitectOrchestrator:
             set_all_status("done", "Archivos escritos")
             set_progress(60)
 
-            # Auditoría post-generación
-            prj_auditor = ProjectAuditor(self.workspace_path)
-            issues = prj_auditor.audit()
-            if issues:
-                print(f"[ARCHITECT] Auditor encontró {len(issues)} problemas:")
-                for issue in issues:
-                    print(f"  - {issue}")
-                if not turbo:
-                    repair_prompt = f"Corrige los siguientes problemas en el proyecto:\n" + "\n".join(f"- {i}" for i in issues) + "\n\nDevuelve archivos corregidos en formato ruta:::código."
-                    try:
-                        repaired = repair_agent.kickoff(repair_prompt)
-                        if repaired:
-                            code = repaired.raw if hasattr(repaired, 'raw') else str(repaired)
-                            if ":::" in code:
-                                self._save_incremental(code)
-                                print("[ARCHITECT] Problemas reparados automáticamente.")
-                    except Exception as e:
-                        print(f"[ARCHITECT] Error al reparar: {e}")
+            # Auditoría (solo si no estamos en rate‑limit)
+            if self.rate_limit_hits == 0:
+                self._run_post_generation_audit(repair_agent)
 
-            # Code Reviewer estático
-            print("[ARCHITECT] Ejecutando CodeReviewer...")
-            reviewer = CodeReviewer(self.workspace_path)
-            review_issues = reviewer.review_backend()
-            if review_issues:
-                print(f"[ARCHITECT] CodeReviewer encontró {len(review_issues)} problemas:")
-                for issue in review_issues:
-                    print(f"  - {issue}")
-                if not turbo:
-                    repair_prompt = f"Corrige los siguientes problemas de código:\n" + "\n".join(f"- {i}" for i in review_issues) + "\n\nDevuelve archivos corregidos en formato ruta:::código."
-                    try:
-                        repaired = repair_agent.kickoff(repair_prompt)
-                        if repaired:
-                            code = repaired.raw if hasattr(repaired, 'raw') else str(repaired)
-                            if ":::" in code:
-                                self._save_incremental(code)
-                                print("[ARCHITECT] Problemas de código reparados automáticamente.")
-                    except Exception as e:
-                        print(f"[ARCHITECT] Error al reparar: {e}")
+            # Code Reviewer
+            if self.rate_limit_hits == 0:
+                self._run_code_reviewer(repair_agent)
+
             set_progress(75)
-
             self._save_project_context()
 
             # Dependencias
-            set_agent_status("Dependency Manager", "working", "Gestionando dependencias...")
-            try:
-                self._ensure_dependencies()
-                set_agent_status("Dependency Manager", "done", "Dependencias completadas")
-            except:
-                set_agent_status("Dependency Manager", "error")
+            if self.rate_limit_hits == 0:
+                set_agent_status("Dependency Manager", "working", "Gestionando dependencias...")
+                try:
+                    self._ensure_dependencies()
+                    set_agent_status("Dependency Manager", "done", "Dependencias completadas")
+                except:
+                    set_agent_status("Dependency Manager", "error")
             set_progress(85)
 
-            # Limpieza de código
+            # Limpieza
             print("[ARCHITECT] Aplicando herramientas de limpieza...")
             self._clean_generated_code()
             set_progress(95)
 
-            # Reparación iterativa con límite diario
-            if not turbo and qa_report and "No se ejecutó QA" not in qa_report and self.crew_available:
-                for iteration in range(3):
-                    set_agent_status("Repair Agent", "working", f"Reparación {iteration+1}/3...")
-                    try:
-                        reduced_context = self._build_reduced_context(crew_code)
-                        repair_prompt = f"""CORRIGE el código según el informe de auditoría. Formato ruta:::código.
-                        INFORME: {qa_report[:500]}
-                        CÓDIGO (resumen): {reduced_context}
-                        """
-                        repaired_code = run_with_timeout(repair_agent.kickoff, AGENT_TIMEOUT, repair_prompt)
-                        if repaired_code and not str(repaired_code).isspace():
-                            repaired_text = repaired_code.raw if hasattr(repaired_code, 'raw') else str(repaired_code)
-                            if repaired_text:
-                                self._save_incremental(repaired_text)
-                                crew_code = repaired_text
-                                set_agent_status("Repair Agent", "done", "Reparación aplicada")
-                    except TimeoutError:
-                        set_agent_status("Repair Agent", "error", "Timeout en reparación")
-                    except Exception as e:
-                        if self._is_rate_limited(str(e)):
-                            print("[ARCHITECT] ⚠️ Límite diario alcanzado. Deteniendo reparaciones.")
-                            set_agent_status("Repair Agent", "error", "Límite diario alcanzado")
-                            break
-                        else:
-                            set_agent_status("Repair Agent", "error", str(e)[:50])
-                    if "error" not in qa_report.lower() and "vulnerabilidad" not in qa_report.lower():
-                        break
+            # Reparación iterativa con límite
+            if not turbo and qa_report and "No se ejecutó QA" not in qa_report and self.crew_available and self.rate_limit_hits < MAX_RATE_LIMIT_RETRIES:
+                self._run_iterative_repair(repair_agent, crew_code, qa_report)
 
+            # Ejecución final
             self.memory.scan_project()
             self.memory.fix_imports_globally()
             self.refactor.analyze_and_fix(extended=True)
@@ -242,10 +192,6 @@ class AutonomousArchitectOrchestrator:
             success = execution_result.get('success', False)
             status = "✅ SALUDABLE" if success else "⚠️ REQUIERE ATENCIÓN"
             report = f"🧠 PROYECTO {final_project_id}\nESTADO: {status}\nSALIDA: {execution_result.get('stdout', '')[:200]}\nERROR: {execution_result.get('stderr', '')[:200]}\nQA: {qa_report[:300] if not turbo else 'Turbo: QA omitido'}"
-            if issues:
-                report += f"\n🔍 Auditoría: {len(issues)} problemas encontrados."
-            if review_issues:
-                report += f"\n📝 CodeReview: {len(review_issues)} problemas de código."
             if self.generated_files:
                 report += f"\n📁 Archivos generados: {len(self.generated_files)}"
             set_all_status("done", "Proyecto completado")
@@ -254,22 +200,115 @@ class AutonomousArchitectOrchestrator:
         finally:
             allow_sleep()
 
+    def _run_with_rate_limit_retry(self, func, *args, **kwargs):
+        """Reintenta una función si falla por rate‑limit, hasta MAX_RATE_LIMIT_RETRIES."""
+        for attempt in range(MAX_RATE_LIMIT_RETRIES):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if self._is_rate_limited(str(e)):
+                    self.rate_limit_hits += 1
+                    if attempt < MAX_RATE_LIMIT_RETRIES - 1:
+                        wait = 2 ** attempt * 5  # Backoff exponencial
+                        print(f"[ARCHITECT] Rate‑limit detectado. Reintentando en {wait}s...")
+                        time.sleep(wait)
+                    else:
+                        raise
+                else:
+                    raise
+
     def _save_incremental(self, crew_code: str):
-        """Guarda cada archivo en el momento en que se genera, registrándolo."""
+        """Guarda cada archivo en el momento en que se genera."""
         execute_plan(crew_code, workspace_base=Path(self.workspace_path))
-        # Registrar archivos creados
         for f in Path(self.workspace_path).rglob("*"):
             if f.is_file():
                 rel = str(f.relative_to(self.workspace_path))
                 if rel not in self.generated_files:
                     self.generated_files.append(rel)
 
+    def _run_post_generation_audit(self, repair_agent):
+        prj_auditor = ProjectAuditor(self.workspace_path)
+        issues = prj_auditor.audit()
+        if issues:
+            print(f"[ARCHITECT] Auditor encontró {len(issues)} problemas:")
+            for issue in issues:
+                print(f"  - {issue}")
+            try:
+                repaired = repair_agent.kickoff(
+                    f"Corrige los siguientes problemas en el proyecto:\n" + "\n".join(f"- {i}" for i in issues) + "\n\nDevuelve archivos corregidos en formato ruta:::código."
+                )
+                if repaired:
+                    code = repaired.raw if hasattr(repaired, 'raw') else str(repaired)
+                    if ":::" in code:
+                        self._save_incremental(code)
+                        print("[ARCHITECT] Problemas reparados automáticamente.")
+            except Exception as e:
+                if self._is_rate_limited(str(e)):
+                    self.rate_limit_hits += 1
+                print(f"[ARCHITECT] Error al reparar: {e}")
+
+    def _run_code_reviewer(self, repair_agent):
+        print("[ARCHITECT] Ejecutando CodeReviewer...")
+        reviewer = CodeReviewer(self.workspace_path)
+        review_issues = reviewer.review_backend()
+        if review_issues:
+            print(f"[ARCHITECT] CodeReviewer encontró {len(review_issues)} problemas:")
+            for issue in review_issues:
+                print(f"  - {issue}")
+            try:
+                repaired = repair_agent.kickoff(
+                    f"Corrige los siguientes problemas de código:\n" + "\n".join(f"- {i}" for i in review_issues) + "\n\nDevuelve archivos corregidos en formato ruta:::código."
+                )
+                if repaired:
+                    code = repaired.raw if hasattr(repaired, 'raw') else str(repaired)
+                    if ":::" in code:
+                        self._save_incremental(code)
+                        print("[ARCHITECT] Problemas de código reparados automáticamente.")
+            except Exception as e:
+                if self._is_rate_limited(str(e)):
+                    self.rate_limit_hits += 1
+                print(f"[ARCHITECT] Error al reparar: {e}")
+
+    def _run_iterative_repair(self, repair_agent, crew_code, qa_report):
+        for iteration in range(3):
+            if self.rate_limit_hits >= MAX_RATE_LIMIT_RETRIES:
+                break
+            set_agent_status("Repair Agent", "working", f"Reparación {iteration+1}/3...")
+            try:
+                reduced_context = self._build_reduced_context(crew_code)
+                repair_prompt = f"""CORRIGE el código según el informe de auditoría. Formato ruta:::código.
+                INFORME: {qa_report[:500]}
+                CÓDIGO (resumen): {reduced_context}
+                """
+                repaired_code = run_with_timeout(repair_agent.kickoff, AGENT_TIMEOUT, repair_prompt)
+                if repaired_code and not str(repaired_code).isspace():
+                    repaired_text = repaired_code.raw if hasattr(repaired_code, 'raw') else str(repaired_code)
+                    if repaired_text:
+                        self._save_incremental(repaired_text)
+                        crew_code = repaired_text
+                        set_agent_status("Repair Agent", "done", "Reparación aplicada")
+            except TimeoutError:
+                set_agent_status("Repair Agent", "error", "Timeout en reparación")
+            except Exception as e:
+                if self._is_rate_limited(str(e)):
+                    self.rate_limit_hits += 1
+                    print("[ARCHITECT] ⚠️ Límite diario alcanzado. Deteniendo reparaciones.")
+                    set_agent_status("Repair Agent", "error", "Límite diario alcanzado")
+                    break
+                else:
+                    set_agent_status("Repair Agent", "error", str(e)[:50])
+            if "error" not in qa_report.lower() and "vulnerabilidad" not in qa_report.lower():
+                break
+
     def _run_ecommerce_workflow(self, user_prompt, project_context, is_modification, director_agent, backend_agent, frontend_agent, qa_agent):
         from workflows.ecommerce_workflow import run_ecommerce_workflow
         return run_ecommerce_workflow(user_prompt, project_context, is_modification)
 
     def _is_rate_limited(self, error_message: str) -> bool:
-        return "free-models-per-day" in error_message or "Rate limit exceeded" in error_message
+        return "free-models-per-day" in error_message or "Rate limit exceeded" in error_message or "429" in error_message
+
+    def _build_rate_limit_report(self, project_id: str) -> str:
+        return f"🧠 PROYECTO {project_id}\n⏳ LÍMITE DIARIO ALCANZADO\nLos modelos gratuitos de OpenRouter se agotaron por hoy.\nGuardá este ID y continuá mañana cuando se reinicie el límite.\nArchivos ya guardados: {len(self.generated_files)}"
 
     def _build_reduced_context(self, crew_code: str) -> str:
         lines = crew_code.split('\n')

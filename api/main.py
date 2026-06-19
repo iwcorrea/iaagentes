@@ -108,7 +108,7 @@ def chat_completions(
         user_prompt = request.messages[-1].content
         intent = detect_intent(user_prompt)
 
-        # Forzar el modelo en el entorno ANTES de importar cualquier agente
+        # Forzar el modelo en el entorno
         model_map = {
             "local-coder": "local-coder",
             "cloud-coder": "cloud-coder",
@@ -117,9 +117,9 @@ def chat_completions(
         actual_model = model_map.get(brain_model, "local-coder")
         os.environ["CURRENT_BRAIN_MODEL"] = actual_model
 
-        # Invalidar cachés de módulos para forzar re-lectura del modelo
+        # Limpiar agresivamente la caché de módulos para que todos los agentes lean el modelo correcto
         for mod in list(sys.modules.keys()):
-            if mod.startswith("agents.") or mod.startswith("core."):
+            if mod.startswith("agents.") or mod == "core.meta_agent":
                 del sys.modules[mod]
 
         is_modification = False
@@ -166,7 +166,7 @@ def chat_completions(
             "choices": [{"index": 0, "message": {"role": "assistant", "content": f"❌ Error del servidor:\n\n{str(e)}"}, "finish_reason": "stop"}]
         }
 
-# ─── VALIDACIÓN DE PROMPT (SIN GENERAR) ───
+# ─── VALIDACIÓN DE PROMPT ───
 @app.post("/api/validate-prompt")
 def validate_prompt_endpoint(data: dict):
     prompt = data.get("prompt", "")
@@ -310,6 +310,7 @@ def execute_project_endpoint(project_id: str):
         "execution_type": result.get("execution_type", "desconocido")
     }
 
+# ─── CHAT PERSISTENTE POR PROYECTO ───
 @app.get("/projects/{project_id}/chat")
 def get_project_chat(project_id: str):
     project_path = project_manager.get_project_path(project_id)

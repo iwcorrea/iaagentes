@@ -17,10 +17,12 @@ model_list:
       fallbacks:
         - openrouter/google/gemma-4-31b-it:free
         - openrouter/qwen/qwen3-coder:free
-        - openrouter/meta-llama/llama-3.3-70b-instruct:free
-      cooldown_time: 30
-      num_retries: 3
-      retry_delay: 15
+        - openrouter/openai/gpt-oss-120b:free
+        - openrouter/nousresearch/hermes-3-llama-3.1-405b:free
+        - openrouter/meta-llama/llama-3.2-3b-instruct:free
+      cooldown_time: 60          # Aumentado a 60s para esquivar rate‑limits
+      num_retries: 2             # Reintentar dos veces
+      retry_delay: 20            # Esperar 20s entre reintentos
       fallbacks_when_rate_limited: true
 
   - model_name: hibrido-coder
@@ -33,7 +35,7 @@ model_list:
       fallbacks:
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
         - openrouter/google/gemma-4-31b-it:free
-      cooldown_time: 15
-      num_retries: 3
-      retry_delay: 8
+      cooldown_time: 30
+      num_retries: 2
+      retry_delay: 10
       fallbacks_when_rate_limited: true

@@ -1,13 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../api/axios'
-import { useToast } from '../hooks/useToast'
 
 export default function SettingsPanel() {
   const [settings, setSettings] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [activeSection, setActiveSection] = useState('models')
-  const { showToast } = useToast()
+  const [toast, setToast] = useState(null)
+
+  const showToast = (message, type = 'info') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 3000)
+  }
 
   const loadSettings = useCallback(async () => {
     try {
@@ -18,7 +22,7 @@ export default function SettingsPanel() {
     } finally {
       setLoading(false)
     }
-  }, [showToast])
+  }, [])
 
   useEffect(() => { loadSettings() }, [loadSettings])
 
@@ -39,10 +43,7 @@ export default function SettingsPanel() {
   }
 
   const updateModel = (field, value) => {
-    setSettings(prev => ({
-      ...prev,
-      models: { ...prev.models, [field]: value }
-    }))
+    setSettings(prev => ({ ...prev, models: { ...prev.models, [field]: value } }))
   }
 
   const toggleAgent = (name) => {
@@ -100,7 +101,7 @@ export default function SettingsPanel() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
         <span className="ml-3 text-gray-400">Cargando configuración...</span>
       </div>
     )
@@ -111,7 +112,7 @@ export default function SettingsPanel() {
   return (
     <div className="flex h-full">
       {/* Sidebar de secciones */}
-      <aside className="w-56 bg-gray-800/50 border-r border-gray-700/50 p-4 space-y-2">
+      <aside className="w-56 bg-gray-800/40 border-r border-gray-700/30 p-4 space-y-2">
         <h2 className="text-lg font-bold text-gray-100 mb-4">⚙️ Configuración</h2>
         {[
           { id: 'models', label: '🤖 Modelos', icon: '🤖' },
@@ -123,14 +124,14 @@ export default function SettingsPanel() {
             onClick={() => setActiveSection(section.id)}
             className={`w-full text-left px-4 py-2 rounded-lg text-sm transition ${
               activeSection === section.id
-                ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
+                ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30'
                 : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/30'
             }`}
           >
             {section.label}
           </button>
         ))}
-        <div className="pt-4 border-t border-gray-700/50">
+        <div className="pt-4 border-t border-gray-700/30">
           <button
             onClick={handleSave}
             disabled={saving}
@@ -225,7 +226,7 @@ export default function SettingsPanel() {
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {(agentConfig.tools || agent.tools || []).map(tool => (
-                      <span key={tool} className="text-xs bg-blue-900/30 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/20">
+                      <span key={tool} className="text-xs bg-gray-700/50 text-gray-300 px-2 py-0.5 rounded-full border border-gray-600/50">
                         {tool}
                       </span>
                     ))}
@@ -240,7 +241,7 @@ export default function SettingsPanel() {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h3 className="text-xl font-bold text-gray-100">👥 Equipos</h3>
-              <button onClick={addTeam} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition">
+              <button onClick={addTeam} className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm transition">
                 + Nuevo equipo
               </button>
             </div>
@@ -274,6 +275,15 @@ export default function SettingsPanel() {
           </div>
         )}
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-4 right-4 z-50 px-4 py-2 rounded-lg text-white text-sm shadow-lg animate-slide-up ${
+          toast.type === 'error' ? 'bg-red-500' : toast.type === 'success' ? 'bg-green-500' : 'bg-blue-500'
+        }`}>
+          {toast.message}
+        </div>
+      )}
     </div>
   )
 }

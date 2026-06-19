@@ -25,6 +25,15 @@ Rules:
 - If a file has the wrong extension, rename it (e.g., .js to .jsx).
 - Keep architecture compatibility.
 - Preserve functionality.
+- Fix ONLY the reported issue, don't modify unrelated code.
+- Return the COMPLETE corrected file using the format path:::code.
+
+Example: if the issue is "Routers not integrated in main.py", output:
+backend/main.py:::from fastapi import FastAPI
+from .routers import auth, wallets
+app = FastAPI()
+app.include_router(auth.router)
+app.include_router(wallets.router)
 """,
     verbose=False,
     allow_delegation=False,

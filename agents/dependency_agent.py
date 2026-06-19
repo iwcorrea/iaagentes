@@ -40,6 +40,15 @@ Rules:
 - ONLY return the corrected files in path:::code format.
 - NEVER add explanations or markdown.
 - If you already know a dependency for an import (cache hit), reuse it without calling the LLM.
+
+Example of expected output:
+backend/requirements.txt:::fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+sqlalchemy>=2.0.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.5
+python-dotenv>=1.0.0
 """,
     verbose=True,
     allow_delegation=False,

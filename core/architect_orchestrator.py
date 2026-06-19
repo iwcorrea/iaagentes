@@ -36,6 +36,7 @@ from core.meta_agent import MetaAgent
 from core.plan_validator import PlanValidator
 from core.project_auditor import ProjectAuditor
 from core.prompt_integrity import PromptIntegrity
+from core.code_reviewer import CodeReviewer
 from workflows.ecommerce_workflow import run_ecommerce_workflow
 from agents.repair_agent import repair_agent
 from agents.dependency_agent import dependency_agent, get_cached_dependencies, add_to_cache
@@ -111,7 +112,7 @@ class AutonomousArchitectOrchestrator:
             if not project_json.exists():
                 project_json.write_text(json.dumps({"name": final_project_id, "created": datetime.now().isoformat()}, indent=2), encoding='utf-8')
 
-            # Auditoría post-generación
+            # ─── AUDITORÍA POST-GENERACIÓN ───
             prj_auditor = ProjectAuditor(self.workspace_path)
             issues = prj_auditor.audit()
             if issues:
@@ -127,6 +128,26 @@ class AutonomousArchitectOrchestrator:
                             if ":::" in code:
                                 execute_plan(code, workspace_base=Path(self.workspace_path))
                                 print("[ARCHITECT] Problemas reparados automáticamente.")
+                    except Exception as e:
+                        print(f"[ARCHITECT] Error al reparar: {e}")
+
+            # ─── CODE REVIEWER ESTÁTICO ───
+            print("[ARCHITECT] Ejecutando CodeReviewer...")
+            reviewer = CodeReviewer(self.workspace_path)
+            review_issues = reviewer.review_backend()
+            if review_issues:
+                print(f"[ARCHITECT] CodeReviewer encontró {len(review_issues)} problemas:")
+                for issue in review_issues:
+                    print(f"  - {issue}")
+                if not turbo:
+                    repair_prompt = f"Corrige los siguientes problemas de código:\n" + "\n".join(f"- {i}" for i in review_issues) + "\n\nDevuelve archivos corregidos en formato ruta:::código."
+                    try:
+                        repaired = repair_agent.kickoff(repair_prompt)
+                        if repaired:
+                            code = repaired.raw if hasattr(repaired, 'raw') else str(repaired)
+                            if ":::" in code:
+                                execute_plan(code, workspace_base=Path(self.workspace_path))
+                                print("[ARCHITECT] Problemas de código reparados automáticamente.")
                     except Exception as e:
                         print(f"[ARCHITECT] Error al reparar: {e}")
 
@@ -149,7 +170,6 @@ class AutonomousArchitectOrchestrator:
                 for iteration in range(3):
                     set_agent_status("Repair Agent", "working")
                     try:
-                        # Construir contexto reducido para no saturar los límites de tokens
                         reduced_context = self._build_reduced_context(crew_code)
                         repair_prompt = f"""CORRIGE el código según el informe de auditoría. Formato ruta:::código.
                         INFORME: {qa_report[:500]}
@@ -168,7 +188,7 @@ class AutonomousArchitectOrchestrator:
                         if self._is_rate_limited(str(e)):
                             print("[ARCHITECT] ⚠️ Límite diario de modelos gratuitos alcanzado. Deteniendo reparaciones.")
                             set_agent_status("Repair Agent", "error")
-                            break  # Salir del bucle inmediatamente
+                            break
                         else:
                             set_agent_status("Repair Agent", "error")
                     if "error" not in qa_report.lower() and "vulnerabilidad" not in qa_report.lower():
@@ -189,16 +209,16 @@ class AutonomousArchitectOrchestrator:
             report = f"🧠 PROYECTO {final_project_id}\nESTADO: {status}\nSALIDA: {execution_result.get('stdout', '')[:200]}\nERROR: {execution_result.get('stderr', '')[:200]}\nQA: {qa_report[:300] if not turbo else 'Turbo: QA omitido'}"
             if issues:
                 report += f"\n🔍 Auditoría: {len(issues)} problemas encontrados y reparados."
+            if review_issues:
+                report += f"\n📝 CodeReview: {len(review_issues)} problemas de código corregidos."
             return report
         finally:
             allow_sleep()
 
     def _is_rate_limited(self, error_message: str) -> bool:
-        """Detecta si el error es por límite diario de modelos gratuitos."""
         return "free-models-per-day" in error_message or "Rate limit exceeded" in error_message
 
     def _build_reduced_context(self, crew_code: str) -> str:
-        """Reduce el contexto enviado a los agentes para no exceder límites de tokens."""
         lines = crew_code.split('\n')
         reduced = []
         for line in lines:
@@ -210,10 +230,9 @@ class AutonomousArchitectOrchestrator:
                 reduced.append('...')
             else:
                 reduced.append(line[:200])
-        return '\n'.join(reduced[:50])  # Máximo 50 líneas
+        return '\n'.join(reduced[:50])
 
     def _clean_generated_code(self):
-        """Aplica herramientas de limpieza (black, isort, bandit) al backend generado."""
         backend_path = Path(self.workspace_path) / "backend"
         if not backend_path.exists():
             return
@@ -283,7 +302,6 @@ class AutonomousArchitectOrchestrator:
         if not code_files:
             return
 
-        # Extraer imports conocidos para usar caché
         known_imports = set()
         for f in code_files:
             full_path = base_path / f
@@ -298,7 +316,6 @@ class AutonomousArchitectOrchestrator:
             except:
                 pass
 
-        # Intentar usar caché
         cached = get_cached_dependencies(list(known_imports))
         if cached and len(cached) >= len(known_imports) * 0.8:
             print(f"[ARCHITECT] Usando caché para dependencias de {project_type}")
@@ -307,7 +324,6 @@ class AutonomousArchitectOrchestrator:
                 execute_plan(f"backend/requirements.txt:::{deps}", workspace_base=Path(self.workspace_path))
             return
 
-        # Delegar al agente si no hay caché suficiente
         prompt = f"Genera archivo de dependencias para {project_type} con archivos: {', '.join(code_files[:10])}. Formato: path:::code."
         try:
             response = dependency_agent.kickoff(prompt)
@@ -315,7 +331,6 @@ class AutonomousArchitectOrchestrator:
                 dep_code = response.raw if hasattr(response, 'raw') else str(response)
                 if dep_code:
                     execute_plan(dep_code, workspace_base=Path(self.workspace_path))
-                    # Alimentar caché con mapeo simple (import -> nombre de paquete base)
                     for imp in known_imports:
                         add_to_cache({imp: imp})
         except Exception as e:

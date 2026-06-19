@@ -459,7 +459,7 @@ def get_quality_metrics(project_id: Optional[str] = Query(None)):
 @app.get("/api/agents")
 def get_agents_info():
     from core.agent_scanner import ComponentScanner
-    from core.agent_status import get_status
+    from core.agent_status import get_status, get_progress
     scanner = ComponentScanner()
     data = scanner.get_full_data()
     live = get_status()
@@ -468,7 +468,8 @@ def get_agents_info():
             if agent["name"] in live:
                 agent["status"] = live[agent["name"]]["status"]
                 agent["emoji"] = live[agent["name"]]["emoji"]
-    return data
+                agent["current_task"] = live[agent["name"]].get("current_task", "")
+    return {"teams": data["teams"], "tools": data["tools"], "core_modules": data["core_modules"], "progress": get_progress()}
 
 @app.post("/system/cleanup-improvements")
 def cleanup_improvements():

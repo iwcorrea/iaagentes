@@ -37,5 +37,6 @@ app.include_router(wallets.router)
 """,
     verbose=False,
     allow_delegation=False,
-    llm=llm
+    llm=llm,
+    tools=[]  # sin herramientas para evitar errores de function calling
 )

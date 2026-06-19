@@ -8,7 +8,6 @@ from pathlib import Path
 from datetime import datetime
 import concurrent.futures
 
-# ─── BLOQUEO DE SUSPENSIÓN (Windows) ───
 if sys.platform == 'win32':
     ES_CONTINUOUS = 0x80000000
     ES_SYSTEM_REQUIRED = 0x00000001
@@ -40,7 +39,7 @@ from core.code_reviewer import CodeReviewer
 from workflows.ecommerce_workflow import run_ecommerce_workflow
 from agents.repair_agent import repair_agent
 from agents.dependency_agent import dependency_agent, get_cached_dependencies, add_to_cache
-from core.agent_status import set_all_status, set_agent_status
+from core.agent_status import set_all_status, set_agent_status, set_progress
 
 CREWAI_AVAILABLE = True
 AGENT_TIMEOUT = 90
@@ -77,6 +76,7 @@ class AutonomousArchitectOrchestrator:
             if not validation["valid"]:
                 print("[ARCHITECT] ⚠️ Prompt ambiguo o incompleto. Aplicando mejoras automáticas...")
                 user_prompt = validator.build_improved_prompt(user_prompt)
+            set_progress(5)
 
             crew_code = qa_report = ""
             final_project_id = Path(self.workspace_path).name
@@ -88,18 +88,24 @@ class AutonomousArchitectOrchestrator:
                 project_context = self._load_project_context_scoped(scope, mode)
 
             if self.crew_available:
+                set_agent_status("Director IA", "working", "Planificando arquitectura...")
+                set_progress(10)
                 set_all_status("working")
                 try:
                     crew_code, qa_report = run_with_timeout(run_ecommerce_workflow, AGENT_TIMEOUT*2, user_prompt, project_context, is_modification)
                     if not crew_code or crew_code.isspace():
                         raise ValueError("El flujo CrewAI no generó código.")
+                    set_agent_status("Director IA", "done", "Plan completado")
+                    set_agent_status("Code Generator", "done", "Backend generado")
+                    set_agent_status("Frontend Designer", "done", "Frontend generado")
                     set_all_status("done")
+                    set_progress(30)
                 except TimeoutError:
-                    set_all_status("error")
+                    set_all_status("error", "Timeout en generación")
                     crew_code = self._generate_demo_plan(user_prompt)
                     qa_report = "Timeout en generación."
                 except Exception:
-                    set_all_status("error")
+                    set_all_status("error", "Error en generación")
                     crew_code = self._generate_demo_plan(user_prompt)
                     qa_report = "Error en generación."
             else:
@@ -111,6 +117,8 @@ class AutonomousArchitectOrchestrator:
             project_json = Path(self.workspace_path) / "project.json"
             if not project_json.exists():
                 project_json.write_text(json.dumps({"name": final_project_id, "created": datetime.now().isoformat()}, indent=2), encoding='utf-8')
+            set_all_status("done", "Archivos escritos")
+            set_progress(60)
 
             # ─── AUDITORÍA POST-GENERACIÓN ───
             prj_auditor = ProjectAuditor(self.workspace_path)
@@ -150,25 +158,28 @@ class AutonomousArchitectOrchestrator:
                                 print("[ARCHITECT] Problemas de código reparados automáticamente.")
                     except Exception as e:
                         print(f"[ARCHITECT] Error al reparar: {e}")
+            set_progress(75)
 
             self._save_project_context()
 
             # ─── DEPENDENCIAS ───
-            set_agent_status("Dependency Manager", "working")
+            set_agent_status("Dependency Manager", "working", "Gestionando dependencias...")
             try:
                 self._ensure_dependencies()
-                set_agent_status("Dependency Manager", "done")
+                set_agent_status("Dependency Manager", "done", "Dependencias completadas")
             except:
                 set_agent_status("Dependency Manager", "error")
+            set_progress(85)
 
-            # ─── LIMPIEZA DE CÓDIGO (BLACK, ISORT, BANDIT) ───
+            # ─── LIMPIEZA DE CÓDIGO ───
             print("[ARCHITECT] Aplicando herramientas de limpieza...")
             self._clean_generated_code()
+            set_progress(95)
 
-            # ─── REPARACIÓN ITERATIVA CON CONTEXTO REDUCIDO Y DETECCIÓN DE LÍMITE ───
+            # ─── REPARACIÓN ITERATIVA ───
             if not turbo and qa_report and "No se ejecutó QA" not in qa_report and self.crew_available:
                 for iteration in range(3):
-                    set_agent_status("Repair Agent", "working")
+                    set_agent_status("Repair Agent", "working", f"Reparación {iteration+1}/3...")
                     try:
                         reduced_context = self._build_reduced_context(crew_code)
                         repair_prompt = f"""CORRIGE el código según el informe de auditoría. Formato ruta:::código.
@@ -181,16 +192,16 @@ class AutonomousArchitectOrchestrator:
                             if repaired_text:
                                 execute_plan(repaired_text, workspace_base=Path(self.workspace_path))
                                 crew_code = repaired_text
-                                set_agent_status("Repair Agent", "done")
+                                set_agent_status("Repair Agent", "done", "Reparación aplicada")
                     except TimeoutError:
-                        set_agent_status("Repair Agent", "error")
+                        set_agent_status("Repair Agent", "error", "Timeout en reparación")
                     except Exception as e:
                         if self._is_rate_limited(str(e)):
-                            print("[ARCHITECT] ⚠️ Límite diario de modelos gratuitos alcanzado. Deteniendo reparaciones.")
-                            set_agent_status("Repair Agent", "error")
+                            print("[ARCHITECT] ⚠️ Límite diario alcanzado. Deteniendo reparaciones.")
+                            set_agent_status("Repair Agent", "error", "Límite diario alcanzado")
                             break
                         else:
-                            set_agent_status("Repair Agent", "error")
+                            set_agent_status("Repair Agent", "error", str(e)[:50])
                     if "error" not in qa_report.lower() and "vulnerabilidad" not in qa_report.lower():
                         break
 
@@ -211,6 +222,8 @@ class AutonomousArchitectOrchestrator:
                 report += f"\n🔍 Auditoría: {len(issues)} problemas encontrados y reparados."
             if review_issues:
                 report += f"\n📝 CodeReview: {len(review_issues)} problemas de código corregidos."
+            set_all_status("done", "Proyecto completado")
+            set_progress(100)
             return report
         finally:
             allow_sleep()

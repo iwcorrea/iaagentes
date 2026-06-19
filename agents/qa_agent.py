@@ -1,8 +1,6 @@
 import os
 from dotenv import load_dotenv
 from crewai import Agent, LLM
-from tools.custom_tools import read_file, run_terminal
-from tools.memory_tools import save_memory_tool, search_memory_tool
 
 load_dotenv()
 
@@ -28,6 +26,6 @@ Reglas adicionales:
 - Generar informe claro con Problema, Impacto, Solución.
 """,
     llm=llm,
-    tools=[read_file, run_terminal, save_memory_tool, search_memory_tool],
+    tools=[],  # sin herramientas para evitar errores de function calling
     verbose=True
 )

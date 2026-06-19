@@ -29,9 +29,9 @@ export default function ChatPanel() {
   const [brainModel, setBrainModel] = useState('local-coder')
   const [agentStatus, setAgentStatus] = useState({})
   const [progressMessages, setProgressMessages] = useState([])
+  const [agentProgress, setAgentProgress] = useState(0)
   const { activeProjectId, projectName, setActiveProjectId, chatMessages, setChatMessages } = useProject()
   const bottomRef = useRef(null)
-  const toastRef = useRef(null)
 
   const showToast = (message, type = 'info') => {
     const toast = document.createElement('div')
@@ -43,7 +43,7 @@ export default function ChatPanel() {
     setTimeout(() => toast.remove(), 4000)
   }
 
-  // Polling del estado de los agentes
+  // Polling del estado de los agentes y progreso
   useEffect(() => {
     let interval
     if (loading) {
@@ -55,15 +55,17 @@ export default function ChatPanel() {
           const statusMap = {}
           allAgents.forEach(a => { statusMap[a.name] = a.status })
           setAgentStatus(statusMap)
+          setAgentProgress(res.data.progress || 0)
           
           const msgs = []
           Object.entries(statusMap).forEach(([name, status]) => {
+            const task = allAgents.find(a => a.name === name)?.current_task || ''
             if (status === 'working') {
-              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ${AGENT_TASKS[name] || 'Trabajando...'}`)
+              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ${task || AGENT_TASKS[name] || 'Trabajando...'}`)
             } else if (status === 'done') {
-              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ✅ Completado`)
+              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ✅ ${task || 'Completado'}`)
             } else if (status === 'error') {
-              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ❌ Error`)
+              msgs.push(`${AGENT_EMOJIS[name] || '🤖'} ${name}: ❌ ${task || 'Error'}`)
             }
           })
           setProgressMessages(msgs)
@@ -72,6 +74,7 @@ export default function ChatPanel() {
     } else {
       setAgentStatus({})
       setProgressMessages([])
+      setAgentProgress(0)
     }
     return () => clearInterval(interval)
   }, [loading])
@@ -146,21 +149,26 @@ export default function ChatPanel() {
         ))}
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-gray-800/80 border border-gray-700/50 px-5 py-3 rounded-2xl text-sm text-gray-300 max-w-[80%]">
+            <div className="bg-gray-800/80 border border-gray-700/50 px-5 py-3 rounded-2xl text-sm text-gray-300 max-w-[80%] w-full">
               <div className="flex items-center gap-2 mb-3">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
                 <span className="font-medium">Los agentes están trabajando...</span>
               </div>
-              {progressMessages.length > 0 && (
-                <div className="space-y-1.5">
-                  {progressMessages.map((msg, i) => (
-                    <div key={i} className="text-xs text-gray-400 flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                      {msg}
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* Barra de progreso */}
+              <div className="w-full bg-gray-700 rounded-full h-2 mb-3">
+                <div
+                  className="bg-gradient-to-r from-blue-500 to-cyan-500 h-2 rounded-full transition-all duration-1000"
+                  style={{ width: `${agentProgress}%` }}
+                ></div>
+              </div>
+              <div className="space-y-1.5">
+                {progressMessages.map((msg, i) => (
+                  <div key={i} className="text-xs text-gray-400 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                    {msg}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

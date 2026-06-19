@@ -5,6 +5,7 @@ model_list:
       api_base: http://localhost:11434
       temperature: 0.0
       max_tokens: 4096
+      supports_function_calling: false
       fallbacks_when_rate_limited: true
 
   - model_name: cloud-coder
@@ -28,6 +29,7 @@ model_list:
       api_base: http://localhost:11434
       temperature: 0.0
       max_tokens: 4096
+      supports_function_calling: false
       fallbacks:
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
         - openrouter/google/gemma-4-31b-it:free

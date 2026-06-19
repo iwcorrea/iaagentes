@@ -26,6 +26,7 @@ export default function ChatPanel() {
   const [scope, setScope] = useState('all')
   const [mode, setMode] = useState('full')
   const [turbo, setTurbo] = useState(false)
+  const [brainModel, setBrainModel] = useState('local-coder')
   const [agentStatus, setAgentStatus] = useState({})
   const [progressMessages, setProgressMessages] = useState([])
   const { activeProjectId, projectName, setActiveProjectId, chatMessages, setChatMessages } = useProject()
@@ -83,17 +84,6 @@ export default function ChatPanel() {
     const text = input.trim()
     if (!text || loading) return
 
-    // Validar prompt antes de enviar
-    try {
-      const validation = await api.post('/api/validate-prompt', { prompt: text })
-      if (!validation.data.valid) {
-        showToast(validation.data.reason, 'error')
-        return
-      }
-    } catch (err) {
-      // Si el endpoint no existe, continuar con el prompt original
-    }
-
     setInput('')
     setLoading(true)
 
@@ -102,7 +92,7 @@ export default function ChatPanel() {
     setChatMessages(updatedMessages)
 
     try {
-      const params = { turbo }
+      const params = { turbo, brain_model: brainModel }
       if (activeProjectId) {
         params.project_id = activeProjectId
         params.scope = scope
@@ -127,7 +117,7 @@ export default function ChatPanel() {
     } finally {
       setLoading(false)
     }
-  }, [input, loading, chatMessages, activeProjectId, scope, mode, turbo, setActiveProjectId, setChatMessages])
+  }, [input, loading, chatMessages, activeProjectId, scope, mode, turbo, brainModel, setActiveProjectId, setChatMessages])
 
   const placeholderText = activeProjectId
     ? `Modificar "${projectName || activeProjectId}"...`
@@ -191,6 +181,16 @@ export default function ChatPanel() {
               </select>
             </>
           )}
+          <select
+            value={brainModel}
+            onChange={e => setBrainModel(e.target.value)}
+            className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200"
+            title="Cerebro de los agentes"
+          >
+            <option value="local-coder">🦙 Local (Qwen 1.5B)</option>
+            <option value="cloud-coder">☁️ Nube (OpenRouter)</option>
+            <option value="hibrido-coder">🔀 Híbrido (Local + Nube)</option>
+          </select>
           <label className="flex items-center gap-2 text-xs text-gray-400">
             <input type="checkbox" checked={turbo} onChange={e => setTurbo(e.target.checked)} />
             ⚡ Turbo

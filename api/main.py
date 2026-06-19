@@ -101,11 +101,21 @@ def chat_completions(
     project_id: Optional[str] = Query(None),
     scope: Optional[str] = Query("all"),
     mode: Optional[str] = Query("full"),
-    turbo: Optional[bool] = Query(False)
+    turbo: Optional[bool] = Query(False),
+    brain_model: Optional[str] = Query("local-coder")
 ):
     try:
         user_prompt = request.messages[-1].content
         intent = detect_intent(user_prompt)
+
+        # Mapear brain_model al modelo real
+        model_map = {
+            "local-coder": "local-coder",
+            "cloud-coder": "cloud-coder",
+            "hibrido-coder": "hibrido-coder"
+        }
+        actual_model = model_map.get(brain_model, "local-coder")
+        os.environ["CURRENT_BRAIN_MODEL"] = actual_model
 
         is_modification = False
         if project_id:

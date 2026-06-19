@@ -1,8 +1,13 @@
-general_settings:
-  disable_model_validation: true
-
 model_list:
-  - model_name: gratuito-fallback
+  - model_name: local-coder
+    litellm_params:
+      model: ollama/qwen2.5-coder:1.5b
+      api_base: http://localhost:11434
+      temperature: 0.0
+      max_tokens: 4096
+      fallbacks_when_rate_limited: true
+
+  - model_name: cloud-coder
     litellm_params:
       model: openrouter/nvidia/nemotron-3-super-120b-a12b:free
       api_key: os.environ/OPENROUTER_API_KEY
@@ -10,11 +15,23 @@ model_list:
       max_tokens: 4096
       fallbacks:
         - openrouter/google/gemma-4-31b-it:free
-        - openrouter/openai/gpt-oss-120b:free
-        - openrouter/meta-llama/llama-3.2-3b-instruct:free
-        - openrouter/liquid/lfm-2.5-1.2b-thinking:free
-        - openrouter/nvidia/nemotron-3-nano-30b-a3b:free
+        - openrouter/qwen/qwen3-coder:free
+        - openrouter/meta-llama/llama-3.3-70b-instruct:free
       cooldown_time: 30
       num_retries: 3
       retry_delay: 15
+      fallbacks_when_rate_limited: true
+
+  - model_name: hibrido-coder
+    litellm_params:
+      model: ollama/qwen2.5-coder:1.5b
+      api_base: http://localhost:11434
+      temperature: 0.0
+      max_tokens: 4096
+      fallbacks:
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/google/gemma-4-31b-it:free
+      cooldown_time: 15
+      num_retries: 3
+      retry_delay: 8
       fallbacks_when_rate_limited: true

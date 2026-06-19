@@ -6,8 +6,11 @@ from tools.memory_tools import save_memory_tool, search_memory_tool
 
 load_dotenv()
 
+# Modelo dinámico según selección del usuario
+current_model = os.getenv("CURRENT_BRAIN_MODEL", "local-coder")
+
 llm = LLM(
-    model="gratuito-fallback",
+    model=current_model,
     api_key="no-necesita-key-real",
     base_url="http://localhost:4000/v1",
     api_base="http://localhost:4000/v1",
@@ -24,13 +27,11 @@ NO converses, NO des introducciones, NO uses bloques ```json.
 Formato obligatorio:
 {
   "project_name": "nombre_del_proyecto",
-  "project_type": "web_app",
   "files": [...]
 }
-
 Reglas críticas:
-- Si el prompt pide "web", "frontend", "página", "dashboard", genera React + Vite, NUNCA React Native o Expo.
-- El plan debe incluir backend/main.py, backend/schemas.py (con Token, UserCreate, etc.), backend/models.py, backend/auth.py, backend/requirements.txt.
+- Si el prompt pide "web", "frontend", "página", genera React + Vite, NUNCA React Native o Expo.
+- El plan debe incluir backend/main.py, backend/schemas.py, backend/models.py, backend/auth.py, backend/requirements.txt.
 - Si hay autenticación JWT, schemas.py debe contener la clase Token.
 - Todos los routers deben ser incluidos en main.py.
 """,

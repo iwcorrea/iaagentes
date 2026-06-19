@@ -108,7 +108,7 @@ def chat_completions(
         user_prompt = request.messages[-1].content
         intent = detect_intent(user_prompt)
 
-        # Mapear brain_model al modelo real
+        # Forzar el modelo en el entorno ANTES de importar cualquier agente
         model_map = {
             "local-coder": "local-coder",
             "cloud-coder": "cloud-coder",
@@ -116,6 +116,11 @@ def chat_completions(
         }
         actual_model = model_map.get(brain_model, "local-coder")
         os.environ["CURRENT_BRAIN_MODEL"] = actual_model
+
+        # Invalidar cachés de módulos para forzar re-lectura del modelo
+        for mod in list(sys.modules.keys()):
+            if mod.startswith("agents.") or mod.startswith("core."):
+                del sys.modules[mod]
 
         is_modification = False
         if project_id:

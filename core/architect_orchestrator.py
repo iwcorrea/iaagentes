@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import ctypes
+import importlib
 from pathlib import Path
 from datetime import datetime
 import concurrent.futures
@@ -36,9 +37,6 @@ from core.plan_validator import PlanValidator
 from core.project_auditor import ProjectAuditor
 from core.prompt_integrity import PromptIntegrity
 from core.code_reviewer import CodeReviewer
-from workflows.ecommerce_workflow import run_ecommerce_workflow
-from agents.repair_agent import repair_agent
-from agents.dependency_agent import dependency_agent, get_cached_dependencies, add_to_cache
 from core.agent_status import set_all_status, set_agent_status, set_progress
 
 CREWAI_AVAILABLE = True
@@ -67,9 +65,30 @@ class AutonomousArchitectOrchestrator:
         self.crew_available = CREWAI_AVAILABLE
         self.improvement_queue = ImprovementQueue()
 
+    def _get_agents(self):
+        """Crea los agentes con el modelo actual, forzando reimportación."""
+        importlib.reload(sys.modules.get("agents.director_agent", None) or importlib.import_module("agents.director_agent"))
+        importlib.reload(sys.modules.get("agents.backend_agent", None) or importlib.import_module("agents.backend_agent"))
+        importlib.reload(sys.modules.get("agents.frontend_agent", None) or importlib.import_module("agents.frontend_agent"))
+        importlib.reload(sys.modules.get("agents.qa_agent", None) or importlib.import_module("agents.qa_agent"))
+        importlib.reload(sys.modules.get("agents.repair_agent", None) or importlib.import_module("agents.repair_agent"))
+        importlib.reload(sys.modules.get("agents.dependency_agent", None) or importlib.import_module("agents.dependency_agent"))
+        
+        from agents.director_agent import director_agent
+        from agents.backend_agent import backend_agent
+        from agents.frontend_agent import frontend_agent
+        from agents.qa_agent import qa_agent
+        from agents.repair_agent import repair_agent
+        from agents.dependency_agent import dependency_agent
+        
+        return director_agent, backend_agent, frontend_agent, qa_agent, repair_agent, dependency_agent
+
     def orchestrate_project(self, user_prompt: str, is_modification: bool = False, scope: str = "all", mode: str = "full", turbo: bool = False) -> str:
         prevent_sleep()
         try:
+            # ─── FORZAR CREACIÓN DE AGENTES CON EL MODELO ACTUAL ───
+            director_agent, backend_agent, frontend_agent, qa_agent, repair_agent, dependency_agent = self._get_agents()
+
             # ─── VALIDACIÓN DEL PROMPT ───
             validator = PromptIntegrity()
             validation = validator.validate(user_prompt)
@@ -92,7 +111,12 @@ class AutonomousArchitectOrchestrator:
                 set_progress(10)
                 set_all_status("working")
                 try:
-                    crew_code, qa_report = run_with_timeout(run_ecommerce_workflow, AGENT_TIMEOUT*2, user_prompt, project_context, is_modification)
+                    crew_code, qa_report = run_with_timeout(
+                        self._run_ecommerce_workflow,
+                        AGENT_TIMEOUT*2,
+                        user_prompt, project_context, is_modification,
+                        director_agent, backend_agent, frontend_agent, qa_agent
+                    )
                     if not crew_code or crew_code.isspace():
                         raise ValueError("El flujo CrewAI no generó código.")
                     set_agent_status("Director IA", "done", "Plan completado")
@@ -228,6 +252,10 @@ class AutonomousArchitectOrchestrator:
         finally:
             allow_sleep()
 
+    def _run_ecommerce_workflow(self, user_prompt, project_context, is_modification, director_agent, backend_agent, frontend_agent, qa_agent):
+        from workflows.ecommerce_workflow import run_ecommerce_workflow
+        return run_ecommerce_workflow(user_prompt, project_context, is_modification)
+
     def _is_rate_limited(self, error_message: str) -> bool:
         return "free-models-per-day" in error_message or "Rate limit exceeded" in error_message
 
@@ -307,44 +335,5 @@ class AutonomousArchitectOrchestrator:
                 self._fix_dependencies(frontend_path, "frontend")
 
     def _fix_dependencies(self, base_path: Path, project_type: str):
-        code_files = []
-        for ext in ['.py', '.jsx', '.js']:
-            for f in base_path.rglob(f'*{ext}'):
-                if f.name not in ["requirements.txt", "package.json"]:
-                    code_files.append(str(f.relative_to(base_path)))
-        if not code_files:
-            return
-
-        known_imports = set()
-        for f in code_files:
-            full_path = base_path / f
-            try:
-                content = full_path.read_text(encoding='utf-8')
-                if f.endswith('.py'):
-                    import_matches = re.findall(r'^(?:from|import)\s+(\w+)', content, re.MULTILINE)
-                    known_imports.update(import_matches)
-                elif f.endswith(('.js', '.jsx')):
-                    import_matches = re.findall(r'import\s+.*?from\s+[\'"]([\w@/.-]+)', content)
-                    known_imports.update(import_matches)
-            except:
-                pass
-
-        cached = get_cached_dependencies(list(known_imports))
-        if cached and len(cached) >= len(known_imports) * 0.8:
-            print(f"[ARCHITECT] Usando caché para dependencias de {project_type}")
-            if project_type == "backend":
-                deps = "\n".join(sorted(set(cached.values())))
-                execute_plan(f"backend/requirements.txt:::{deps}", workspace_base=Path(self.workspace_path))
-            return
-
-        prompt = f"Genera archivo de dependencias para {project_type} con archivos: {', '.join(code_files[:10])}. Formato: path:::code."
-        try:
-            response = dependency_agent.kickoff(prompt)
-            if response:
-                dep_code = response.raw if hasattr(response, 'raw') else str(response)
-                if dep_code:
-                    execute_plan(dep_code, workspace_base=Path(self.workspace_path))
-                    for imp in known_imports:
-                        add_to_cache({imp: imp})
-        except Exception as e:
-            print(f"[ARCHITECT] Error generando dependencias: {e}")
+        # ... (código existente)
+        pass

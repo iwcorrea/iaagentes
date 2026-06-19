@@ -7,7 +7,6 @@ from typing import Optional
 
 router = APIRouter()
 
-# Importamos project_manager desde el contexto de la app
 from core.project_manager import ProjectManager
 from core.executor import ProjectExecutor
 

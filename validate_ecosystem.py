@@ -7,7 +7,6 @@ sys.path.insert(0, str(ROOT))
 
 errors = []
 
-# Lista de módulos a verificar
 modules = [
     "api.main",
     "api.routers.projects_router",
@@ -15,6 +14,7 @@ modules = [
     "core.syntax_validator",
     "core.dependency_cache",
     "core.prompt_guard",
+    "core.learning_tracker",
     "agents.test_agent",
     "agents.deploy_agent",
 ]

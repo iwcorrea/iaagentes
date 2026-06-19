@@ -6,6 +6,7 @@ import shutil
 import ctypes
 import importlib
 import time
+import os
 from pathlib import Path
 from datetime import datetime
 import concurrent.futures
@@ -100,6 +101,7 @@ class AutonomousArchitectOrchestrator:
                 print("[ARCHITECT] ⚠️ Prompt ambiguo o incompleto. Aplicando mejoras automáticas...")
                 user_prompt = validator.build_improved_prompt(user_prompt)
             set_progress(5)
+            set_agent_status("Director IA", "working", "Analizando prompt...")
 
             crew_code = qa_report = ""
             final_project_id = Path(self.workspace_path).name
@@ -111,7 +113,7 @@ class AutonomousArchitectOrchestrator:
                 project_context = self._load_project_context_scoped(scope, mode)
 
             if self.crew_available:
-                set_agent_status("Director IA", "working", "Planificando arquitectura...")
+                set_agent_status("Director IA", "working", "Planificando estructura de archivos...")
                 set_progress(10)
                 set_all_status("working")
                 try:
@@ -150,10 +152,14 @@ class AutonomousArchitectOrchestrator:
             set_progress(60)
 
             if self.rate_limit_hits == 0:
+                set_agent_status("QA Auditor", "working", "Revisando código generado...")
                 self._run_post_generation_audit(repair_agent)
+                set_agent_status("QA Auditor", "done", "Auditoría completada")
 
             if self.rate_limit_hits == 0:
+                set_agent_status("QA Auditor", "working", "Analizando estructura de código...")
                 self._run_code_reviewer(repair_agent)
+                set_agent_status("QA Auditor", "done", "Code review completada")
 
             set_progress(65)
 
@@ -166,7 +172,7 @@ class AutonomousArchitectOrchestrator:
             self._save_project_context()
 
             if self.rate_limit_hits == 0:
-                set_agent_status("Dependency Manager", "working", "Gestionando dependencias...")
+                set_agent_status("Dependency Manager", "working", "Cacheando dependencias...")
                 try:
                     self._ensure_dependencies()
                     set_agent_status("Dependency Manager", "done", "Dependencias completadas")
@@ -198,7 +204,9 @@ class AutonomousArchitectOrchestrator:
             set_progress(96)
 
             if not turbo and qa_report and "No se ejecutó QA" not in qa_report and self.crew_available and self.rate_limit_hits < MAX_RATE_LIMIT_RETRIES:
+                set_agent_status("Repair Agent", "working", "Aplicando correcciones...")
                 self._run_iterative_repair(repair_agent, crew_code, qa_report)
+                set_agent_status("Repair Agent", "done", "Reparaciones finalizadas")
 
             self.memory.scan_project()
             self.memory.fix_imports_globally()
@@ -209,6 +217,9 @@ class AutonomousArchitectOrchestrator:
                 MetaAgent(memory=self.memory, queue=self.improvement_queue).analyze_and_propose(project_root=".")
             except:
                 pass
+
+            # ─── REGISTRAR APRENDIZAJE ───
+            self._track_learning(final_project_id)
 
             success = execution_result.get('success', False)
             status = "✅ SALUDABLE" if success else "⚠️ REQUIERE ATENCIÓN"
@@ -292,7 +303,6 @@ class AutonomousArchitectOrchestrator:
         for iteration in range(3):
             if self.rate_limit_hits >= MAX_RATE_LIMIT_RETRIES:
                 break
-            set_agent_status("Repair Agent", "working", f"Reparación {iteration+1}/3...")
             try:
                 reduced_context = self._build_reduced_context(crew_code)
                 repair_prompt = f"""CORRIGE el código según el informe de auditoría. Formato ruta:::código.
@@ -305,17 +315,13 @@ class AutonomousArchitectOrchestrator:
                     if repaired_text:
                         self._save_incremental(repaired_text)
                         crew_code = repaired_text
-                        set_agent_status("Repair Agent", "done", "Reparación aplicada")
             except TimeoutError:
-                set_agent_status("Repair Agent", "error", "Timeout en reparación")
+                pass
             except Exception as e:
                 if self._is_rate_limited(str(e)):
                     self.rate_limit_hits += 1
                     print("[ARCHITECT] ⚠️ Límite diario alcanzado. Deteniendo reparaciones.")
-                    set_agent_status("Repair Agent", "error", "Límite diario alcanzado")
                     break
-                else:
-                    set_agent_status("Repair Agent", "error", str(e)[:50])
             if "error" not in qa_report.lower() and "vulnerabilidad" not in qa_report.lower():
                 break
 
@@ -327,7 +333,7 @@ class AutonomousArchitectOrchestrator:
         return "free-models-per-day" in error_message or "Rate limit exceeded" in error_message or "429" in error_message
 
     def _build_rate_limit_report(self, project_id: str) -> str:
-        return f"🧠 PROYECTO {project_id}\n⏳ LÍMITE DIARIO ALCANZADO\nLos modelos gratuitos de OpenRouter se agotaron por hoy.\nGuardá este ID y continuá mañana cuando se reinicie el límite.\nArchivos ya guardados: {len(self.generated_files)}"
+        return f"🧠 PROYECTO {project_id}\n⏳ LÍMITE DIARIO ALCANZADO\nLos modelos gratuitos de OpenRouter se agotaron por hoy.\nGuardá este ID y continuá cuando se reinicie el límite.\nArchivos ya guardados: {len(self.generated_files)}"
 
     def _build_reduced_context(self, crew_code: str) -> str:
         lines = crew_code.split('\n')
@@ -414,7 +420,6 @@ ERRORES:
     def _generate_deploy_and_docs(self, deploy_agent):
         """Genera archivos de despliegue y documentación."""
         backend_path = Path(self.workspace_path) / "backend"
-        frontend_path = Path(self.workspace_path) / "frontend"
 
         project_info = []
         if backend_path.exists():
@@ -447,6 +452,31 @@ Generá:
                     print("[ARCHITECT] Archivos de despliegue y documentación generados.")
         except Exception as e:
             print(f"[ARCHITECT] Error generando despliegue/docs: {e}")
+
+    def _track_learning(self, final_project_id: str):
+        """Registra el proyecto actual en el rastreador de aprendizaje."""
+        from core.learning_tracker import LearningTracker
+
+        tracker = LearningTracker()
+        summary = {
+            "files": self.generated_files,
+            "errors": [],
+            "dependencies_cached": True,
+            "model_used": os.getenv("CURRENT_BRAIN_MODEL", "unknown"),
+            "generated_at": datetime.now().isoformat()
+        }
+
+        prj_auditor = ProjectAuditor(self.workspace_path)
+        audit_issues = prj_auditor.audit()
+        if audit_issues:
+            summary["errors"].extend(audit_issues)
+
+        tracker.add_project(final_project_id, summary)
+        print(f"[ARCHITECT] Proyecto registrado en el rastreador de aprendizaje.")
+
+        insights = tracker.get_insights()
+        if insights.get("total_projects", 0) >= 2:
+            print(f"[ARCHITECT] 📊 Estadísticas acumuladas: {insights}")
 
     def _validate_prompt_integrity(self, user_prompt: str) -> dict:
         validator = PromptIntegrity()

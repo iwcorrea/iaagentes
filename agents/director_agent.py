@@ -6,7 +6,6 @@ from tools.memory_tools import save_memory_tool, search_memory_tool
 
 load_dotenv()
 
-# Modelo dinámico según selección del usuario
 current_model = os.getenv("CURRENT_BRAIN_MODEL", "local-coder")
 
 llm = LLM(
@@ -16,6 +15,10 @@ llm = LLM(
     api_base="http://localhost:4000/v1",
     stop=[]
 )
+
+# Cargar tools solo si el modelo las soporta (modos nube e híbrido)
+supports_tools = current_model in ("cloud-coder", "hibrido-coder")
+agent_tools = [read_file, run_terminal, save_memory_tool, search_memory_tool] if supports_tools else []
 
 director_agent = Agent(
     role="Director IA",
@@ -36,6 +39,6 @@ Reglas críticas:
 - Todos los routers deben ser incluidos en main.py.
 """,
     llm=llm,
-    tools=[read_file, run_terminal, save_memory_tool, search_memory_tool],
+    tools=agent_tools,
     verbose=True
 )

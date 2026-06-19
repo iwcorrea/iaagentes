@@ -1,6 +1,8 @@
 import os
 from dotenv import load_dotenv
 from crewai import Agent, LLM
+from tools.custom_tools import read_file, run_terminal
+from tools.memory_tools import save_memory_tool, search_memory_tool
 
 load_dotenv()
 
@@ -14,6 +16,9 @@ llm = LLM(
     stop=[]
 )
 
+supports_tools = current_model in ("cloud-coder", "hibrido-coder")
+agent_tools = [read_file, run_terminal, save_memory_tool, search_memory_tool] if supports_tools else []
+
 qa_agent = Agent(
     role="QA Auditor",
     goal="Detectar errores, vulnerabilidades, malas prácticas, y problemas de sintaxis (como archivos .js con JSX).",
@@ -26,6 +31,6 @@ Reglas adicionales:
 - Generar informe claro con Problema, Impacto, Solución.
 """,
     llm=llm,
-    tools=[],  # sin herramientas para evitar errores de function calling
+    tools=agent_tools,
     verbose=True
 )

@@ -16,6 +16,9 @@ llm = LLM(
     stop=[]
 )
 
+supports_tools = current_model in ("cloud-coder", "hibrido-coder")
+agent_tools = [read_file, write_file, run_terminal, save_memory_tool, search_memory_tool] if supports_tools else []
+
 backend_agent = Agent(
     role="Code Generator",
     goal="Generate professional, secure, production-ready backend code using modern libraries.",
@@ -37,28 +40,9 @@ Rules:
 - User model MUST include 'username' if authentication is needed.
 - Use environment variables for secrets (SECRET_KEY, DATABASE_URL).
 - Generate requirements.txt with ALL dependencies.
-
-Example of expected output format:
-backend/models/user.py:::from sqlmodel import SQLModel, Field
-class User(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
-    username: str = Field(index=True)
-    hashed_password: str
-    role: str
-
-backend/schemas/user.py:::from pydantic import BaseModel
-class UserCreate(BaseModel):
-    username: str
-    password: str
-    role: str
-
-class UserOut(BaseModel):
-    id: int
-    username: str
-    role: str
 """,
     llm=llm,
-    tools=[],
+    tools=agent_tools,
     max_iter=1,
     verbose=False
 )

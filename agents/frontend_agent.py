@@ -16,6 +16,9 @@ llm = LLM(
     stop=[]
 )
 
+supports_tools = current_model in ("cloud-coder", "hibrido-coder")
+agent_tools = [read_file, write_file, save_memory_tool, search_memory_tool] if supports_tools else []
+
 frontend_agent = Agent(
     role="Frontend Designer",
     goal="Design modern interfaces with React, Vite and Tailwind using best practices and modern libraries.",
@@ -34,40 +37,8 @@ Reglas OBLIGATORIAS:
 - NO usar React Native ni Expo. Solo React con Vite.
 - NUNCA hardcodear roles en el frontend; obtenerlos del JWT.
 - Login.jsx debe usar FormData para enviar credenciales (application/x-www-form-urlencoded).
-
-Ejemplo de formato de salida:
-frontend/src/components/Login.jsx:::import { useState } from 'react'
-import axios from 'axios'
-
-export default function Login({ onLogin }) {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    try {
-      const formData = new URLSearchParams()
-      formData.append('username', username)
-      formData.append('password', password)
-      const res = await axios.post('http://localhost:8000/auth/token', formData)
-      onLogin(res.data.access_token)
-    } catch (err) {
-      setError('Credenciales incorrectas')
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <input type="text" value={username} onChange={e => setUsername(e.target.value)} />
-      <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
-      <button type="submit">Iniciar sesión</button>
-      {error && <p>{error}</p>}
-    </form>
-  )
-}
 """,
     llm=llm,
-    tools=[read_file, write_file, save_memory_tool, search_memory_tool],
+    tools=agent_tools,
     verbose=True
 )

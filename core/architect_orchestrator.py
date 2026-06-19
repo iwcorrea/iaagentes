@@ -1,6 +1,6 @@
 import sys
 import ctypes
-import importlib
+import os
 from pathlib import Path
 from datetime import datetime
 
@@ -28,9 +28,9 @@ from core.simulated_agents import CodeAgent
 from core.improvement_queue import ImprovementQueue
 from core.meta_agent import MetaAgent
 from core.prompt_integrity import PromptIntegrity
+from core.project_context import ProjectContext
 from core.agent_status import set_all_status, set_progress
 
-# Fases modulares
 from core.phases.phase_generator import PhaseGenerator
 from core.phases.phase_auditor import PhaseAuditor
 from core.phases.phase_dependencies import PhaseDependencies
@@ -52,6 +52,12 @@ class AutonomousArchitectOrchestrator:
         self.improvement_queue = ImprovementQueue()
         self.generated_files = []
         self.rate_limit_hits = 0
+        self.project_context = ProjectContext()
+
+    def _get_agents(self):
+        from core.agent_cache import get_agents
+        current_model = os.getenv("CURRENT_BRAIN_MODEL", "local-coder")
+        return get_agents(current_model)
 
     def orchestrate_project(self, user_prompt: str, is_modification: bool = False,
                             scope: str = "all", mode: str = "full", turbo: bool = False) -> str:
@@ -59,7 +65,6 @@ class AutonomousArchitectOrchestrator:
         self.generated_files = []
         self.rate_limit_hits = 0
         try:
-            # Validar prompt
             validator = PromptIntegrity()
             validation = validator.validate(user_prompt)
             if not validation["valid"]:
@@ -68,11 +73,9 @@ class AutonomousArchitectOrchestrator:
 
             final_project_id = Path(self.workspace_path).name
 
-            # Fase 1: Generación
             gen = PhaseGenerator(self)
             crew_code, qa_report = gen.run(user_prompt, is_modification, scope, mode, turbo)
 
-            # Guardar metadatos del proyecto
             project_json = Path(self.workspace_path) / "project.json"
             if not project_json.exists():
                 import json
@@ -81,23 +84,18 @@ class AutonomousArchitectOrchestrator:
                     "created": datetime.now().isoformat()
                 }, indent=2), encoding='utf-8')
 
-            # Fase 2: Auditoría
             aud = PhaseAuditor(self)
             aud.run(turbo)
 
-            # Fase 3: Dependencias
             dep = PhaseDependencies(self)
             dep.run()
 
-            # Fase 4: Despliegue y tests
             deploy = PhaseDeploy(self)
             deploy.run(turbo)
 
-            # Fase 5: Reparación iterativa
             rep = PhaseRepair(self)
             rep.run(crew_code, qa_report, turbo)
 
-            # Ejecución y MetaAgent
             self.memory.scan_project()
             self.memory.fix_imports_globally()
             self.refactor.analyze_and_fix(extended=True)
@@ -110,7 +108,6 @@ class AutonomousArchitectOrchestrator:
             except:
                 pass
 
-            # Rastreador de aprendizaje
             from core.learning_tracker import LearningTracker
             tracker = LearningTracker()
             tracker.add_project(final_project_id, {
@@ -129,3 +126,21 @@ class AutonomousArchitectOrchestrator:
             return report
         finally:
             allow_sleep()
+
+    def _load_project_context_scoped(self, scope: str, mode: str) -> str:
+        project_path = Path(self.workspace_path)
+        if not project_path.exists():
+            return ""
+        lines = []
+        for f in project_path.rglob("*"):
+            if f.is_file() and f.name not in ["project_context.json", "chat.json", "project.json"]:
+                rel = str(f.relative_to(project_path))
+                if scope == "backend" and not rel.startswith("backend"): continue
+                if scope == "frontend" and not rel.startswith("frontend"): continue
+                if mode == "light":
+                    lines.append(f"- {rel}")
+                else:
+                    content = self.project_context.read_file(project_path, rel)
+                    if content:
+                        lines.append(f"=== {rel} ===\n{content[:1000]}")
+        return "\n".join(lines)

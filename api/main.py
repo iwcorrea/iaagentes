@@ -27,7 +27,6 @@ from core.config_assistant import ConfigAssistant
 from core.guided_builder import GuidedBuilder
 from core.prompt_guard import validate_prompt
 
-# Router refactorizado
 from api.routers import projects_router
 
 app = FastAPI()
@@ -40,7 +39,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Montar router de proyectos
 app.include_router(projects_router.router)
 
 project_manager = ProjectManager()
@@ -85,7 +83,6 @@ class ImprovementProposal(BaseModel):
     suggested_code: Optional[str] = ""
     reason: Optional[str] = ""
 
-# ─── DASHBOARD ───
 @app.get("/dashboard")
 def dashboard():
     return {"message": "Usa el nuevo frontend React en nfrontend/frontend"}
@@ -100,6 +97,11 @@ def list_models():
         "object": "list",
         "data": [{"id": "crewai-system", "object": "model", "created": 1234567890, "owned_by": "local"}]
     }
+
+@app.get("/api/progress")
+def get_progress_only():
+    from core.agent_status import get_progress
+    return {"progress": get_progress()}
 
 @app.post("/v1/chat/completions")
 def chat_completions(
@@ -121,6 +123,9 @@ def chat_completions(
         }
         actual_model = model_map.get(brain_model, "local-coder")
         os.environ["CURRENT_BRAIN_MODEL"] = actual_model
+
+        from core.agent_cache import clear_cache
+        clear_cache()
 
         for mod in list(sys.modules.keys()):
             if mod.startswith("agents.") or mod == "core.meta_agent":
@@ -170,7 +175,6 @@ def chat_completions(
             "choices": [{"index": 0, "message": {"role": "assistant", "content": f"❌ Error del servidor:\n\n{str(e)}"}, "finish_reason": "stop"}]
         }
 
-# ─── VALIDACIÓN DE PROMPT ───
 @app.post("/api/validate-prompt")
 def validate_prompt_endpoint(data: dict):
     prompt = data.get("prompt", "")
@@ -179,7 +183,6 @@ def validate_prompt_endpoint(data: dict):
     validation = validate_prompt(prompt)
     return validation
 
-# ─── ASISTENTE GUIADO ───
 @app.get("/api/guided-templates")
 def get_guided_templates():
     return {"templates": guided_builder.get_templates()}
@@ -220,7 +223,6 @@ def create_guided_project(data: dict):
         "message": "Proyecto creado exitosamente"
     }
 
-# ─── CONFIGURACIÓN ───
 @app.get("/api/settings")
 def get_settings():
     settings = load_settings()
@@ -239,14 +241,12 @@ def update_settings(settings: dict):
     save_settings(current)
     return {"status": "ok", "message": "Configuración guardada."}
 
-# ─── ESTADÍSTICAS DE CACHÉ DE DEPENDENCIAS ───
 @app.get("/system/dependency-cache-stats")
 def dependency_cache_stats():
     from core.dependency_cache import DependencyCache
     cache = DependencyCache()
     return cache.stats()
 
-# ─── MEJORAS ───
 @app.post("/system/propose-improvement")
 def propose_improvement(proposal: ImprovementProposal):
     proposal_id = improvement_queue.add_proposal(
@@ -342,7 +342,6 @@ def get_quality_metrics(project_id: Optional[str] = Query(None)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error obteniendo métricas: {str(e)}")
 
-# ─── AGENTES ───
 @app.get("/api/agents")
 def get_agents_info():
     from core.agent_scanner import ComponentScanner

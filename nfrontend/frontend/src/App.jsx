@@ -7,6 +7,7 @@ import PreviewPanel from './components/PreviewPanel'
 import ConsolePanel from './components/ConsolePanel'
 import TeamPanel from './components/TeamPanel'
 import SettingsPanel from './components/SettingsPanel'
+import ProjectDashboard from './components/ProjectDashboard'
 import { ProjectProvider, useProject } from './context/ProjectContext'
 
 function MainContent() {
@@ -17,8 +18,9 @@ function MainContent() {
     { id: 'chat', label: 'Chat', icon: '💬' },
     { id: 'projects', label: 'Proyectos', icon: '📁' },
     { id: 'team', label: 'Equipo', icon: '👥' },
-    { id: 'preview', label: 'Vista previa', icon: '👁️' },
-    { id: 'console', label: 'Consola', icon: '🖥️' },
+    { id: 'dashboard', label: 'Dashboard', icon: '📊', requiresProject: true },
+    { id: 'preview', label: 'Vista previa', icon: '👁️', requiresProject: true },
+    { id: 'console', label: 'Consola', icon: '🖥️', requiresProject: true },
     { id: 'settings', label: 'Configuración', icon: '⚙️' }
   ]
 
@@ -27,7 +29,7 @@ function MainContent() {
       {activeProjectId && <Sidebar />}
       <main className="flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-slate-900 via-gray-900 to-slate-800">
         <nav className="flex gap-1 px-6 py-3 bg-gray-800/50 backdrop-blur-sm border-b border-gray-700/50">
-          {tabs.map(tab => (
+          {tabs.filter(tab => !tab.requiresProject || activeProjectId).map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -46,6 +48,7 @@ function MainContent() {
           {activeTab === 'chat' && <ChatPanel />}
           {activeTab === 'projects' && <ProjectList />}
           {activeTab === 'team' && <TeamPanel />}
+          {activeTab === 'dashboard' && <ProjectDashboard />}
           {activeTab === 'preview' && <PreviewPanel />}
           {activeTab === 'console' && <ConsolePanel />}
           {activeTab === 'settings' && <SettingsPanel />}

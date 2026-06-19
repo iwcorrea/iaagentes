@@ -8,6 +8,8 @@ export function ProjectProvider({ children }) {
   const [projectName, setProjectName] = useState('')
   const [chatMessages, setChatMessages] = useState([])
   const [executionUrl, setExecutionUrl] = useState(null)
+  const [projectFiles, setProjectFiles] = useState([])
+  const [projectStats, setProjectStats] = useState({ files: 0, lastGeneration: null })
 
   useEffect(() => {
     if (activeProjectId) {
@@ -17,10 +19,19 @@ export function ProjectProvider({ children }) {
       api.get(`/projects/${activeProjectId}/chat`)
         .then(res => setChatMessages(res.data.messages || []))
         .catch(() => setChatMessages([]))
+      api.get(`/projects/${activeProjectId}/files`)
+        .then(res => {
+          const files = res.data.files || []
+          setProjectFiles(files)
+          setProjectStats({ files: files.length, lastGeneration: new Date().toISOString() })
+        })
+        .catch(() => setProjectFiles([]))
     } else {
       setProjectName('')
       setChatMessages([])
       setExecutionUrl(null)
+      setProjectFiles([])
+      setProjectStats({ files: 0, lastGeneration: null })
     }
   }, [activeProjectId])
 
@@ -35,7 +46,8 @@ export function ProjectProvider({ children }) {
       activeProjectId, setActiveProjectId, 
       projectName, updateProjectName,
       chatMessages, setChatMessages,
-      executionUrl, setExecutionUrl
+      executionUrl, setExecutionUrl,
+      projectFiles, projectStats
     }}>
       {children}
     </ProjectContext.Provider>

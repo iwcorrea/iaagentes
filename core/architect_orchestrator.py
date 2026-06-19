@@ -42,7 +42,7 @@ from core.agent_status import set_all_status, set_agent_status, set_progress
 
 CREWAI_AVAILABLE = True
 AGENT_TIMEOUT = 90
-MAX_RATE_LIMIT_RETRIES = 3  # Intentos antes de abortar una fase
+MAX_RATE_LIMIT_RETRIES = 3
 
 class TimeoutError(Exception): pass
 
@@ -66,24 +66,25 @@ class AutonomousArchitectOrchestrator:
         self.agent_registry.register(CodeAgent(memory=self.memory))
         self.crew_available = CREWAI_AVAILABLE
         self.improvement_queue = ImprovementQueue()
-        self.generated_files = []  # Archivos guardados en esta sesión
-        self.rate_limit_hits = 0   # Contador de rate‑limits consecutivos
+        self.generated_files = []   # archivos guardados en esta sesión
+        self.rate_limit_hits = 0    # contador de rate‑limits consecutivos
 
     def _get_agents(self):
+        """Crea los agentes con el modelo actual, forzando reimportación."""
         importlib.reload(sys.modules.get("agents.director_agent", None) or importlib.import_module("agents.director_agent"))
         importlib.reload(sys.modules.get("agents.backend_agent", None) or importlib.import_module("agents.backend_agent"))
         importlib.reload(sys.modules.get("agents.frontend_agent", None) or importlib.import_module("agents.frontend_agent"))
         importlib.reload(sys.modules.get("agents.qa_agent", None) or importlib.import_module("agents.qa_agent"))
         importlib.reload(sys.modules.get("agents.repair_agent", None) or importlib.import_module("agents.repair_agent"))
         importlib.reload(sys.modules.get("agents.dependency_agent", None) or importlib.import_module("agents.dependency_agent"))
-        
+
         from agents.director_agent import director_agent
         from agents.backend_agent import backend_agent
         from agents.frontend_agent import frontend_agent
         from agents.qa_agent import qa_agent
         from agents.repair_agent import repair_agent
         from agents.dependency_agent import dependency_agent
-        
+
         return director_agent, backend_agent, frontend_agent, qa_agent, repair_agent, dependency_agent
 
     def orchestrate_project(self, user_prompt: str, is_modification: bool = False, scope: str = "all", mode: str = "full", turbo: bool = False) -> str:
@@ -93,6 +94,7 @@ class AutonomousArchitectOrchestrator:
         try:
             director_agent, backend_agent, frontend_agent, qa_agent, repair_agent, dependency_agent = self._get_agents()
 
+            # ─── VALIDACIÓN DEL PROMPT ───
             validator = PromptIntegrity()
             validation = validator.validate(user_prompt)
             if not validation["valid"]:
@@ -109,6 +111,7 @@ class AutonomousArchitectOrchestrator:
             if is_modification:
                 project_context = self._load_project_context_scoped(scope, mode)
 
+            # ─── FASE 1: GENERACIÓN ───
             if self.crew_available:
                 set_agent_status("Director IA", "working", "Planificando arquitectura...")
                 set_progress(10)
@@ -142,24 +145,25 @@ class AutonomousArchitectOrchestrator:
                 crew_code = self._generate_demo_plan(user_prompt)
                 qa_report = "CrewAI desactivado."
 
+            # Guardar project.json si no existe
             project_json = Path(self.workspace_path) / "project.json"
             if not project_json.exists():
                 project_json.write_text(json.dumps({"name": final_project_id, "created": datetime.now().isoformat()}, indent=2), encoding='utf-8')
             set_all_status("done", "Archivos escritos")
             set_progress(60)
 
-            # Auditoría (solo si no estamos en rate‑limit)
+            # ─── AUDITORÍA POST-GENERACIÓN ───
             if self.rate_limit_hits == 0:
                 self._run_post_generation_audit(repair_agent)
 
-            # Code Reviewer
+            # ─── CODE REVIEWER ESTÁTICO ───
             if self.rate_limit_hits == 0:
                 self._run_code_reviewer(repair_agent)
 
             set_progress(75)
             self._save_project_context()
 
-            # Dependencias
+            # ─── DEPENDENCIAS ───
             if self.rate_limit_hits == 0:
                 set_agent_status("Dependency Manager", "working", "Gestionando dependencias...")
                 try:
@@ -169,16 +173,26 @@ class AutonomousArchitectOrchestrator:
                     set_agent_status("Dependency Manager", "error")
             set_progress(85)
 
-            # Limpieza
+            # ─── LIMPIEZA DE CÓDIGO ───
             print("[ARCHITECT] Aplicando herramientas de limpieza...")
             self._clean_generated_code()
+            set_progress(90)
+
+            # ─── GENERACIÓN DE TESTS ───
+            if not turbo and self.crew_available and self.rate_limit_hits < MAX_RATE_LIMIT_RETRIES:
+                print("[ARCHITECT] Generando tests unitarios...")
+                try:
+                    from agents.test_agent import test_agent
+                    self._generate_tests(test_agent)
+                except Exception as e:
+                    print(f"[ARCHITECT] Error al generar tests: {e}")
             set_progress(95)
 
-            # Reparación iterativa con límite
+            # ─── REPARACIÓN ITERATIVA ───
             if not turbo and qa_report and "No se ejecutó QA" not in qa_report and self.crew_available and self.rate_limit_hits < MAX_RATE_LIMIT_RETRIES:
                 self._run_iterative_repair(repair_agent, crew_code, qa_report)
 
-            # Ejecución final
+            # ─── EJECUCIÓN FINAL ───
             self.memory.scan_project()
             self.memory.fix_imports_globally()
             self.refactor.analyze_and_fix(extended=True)
@@ -200,8 +214,9 @@ class AutonomousArchitectOrchestrator:
         finally:
             allow_sleep()
 
+    # ─── MÉTODOS DE SOPORTE ──────────────────────────────────────────
+
     def _run_with_rate_limit_retry(self, func, *args, **kwargs):
-        """Reintenta una función si falla por rate‑limit, hasta MAX_RATE_LIMIT_RETRIES."""
         for attempt in range(MAX_RATE_LIMIT_RETRIES):
             try:
                 return func(*args, **kwargs)
@@ -209,7 +224,7 @@ class AutonomousArchitectOrchestrator:
                 if self._is_rate_limited(str(e)):
                     self.rate_limit_hits += 1
                     if attempt < MAX_RATE_LIMIT_RETRIES - 1:
-                        wait = 2 ** attempt * 5  # Backoff exponencial
+                        wait = 2 ** attempt * 5
                         print(f"[ARCHITECT] Rate‑limit detectado. Reintentando en {wait}s...")
                         time.sleep(wait)
                     else:
@@ -218,7 +233,6 @@ class AutonomousArchitectOrchestrator:
                     raise
 
     def _save_incremental(self, crew_code: str):
-        """Guarda cada archivo en el momento en que se genera."""
         execute_plan(crew_code, workspace_base=Path(self.workspace_path))
         for f in Path(self.workspace_path).rglob("*"):
             if f.is_file():
@@ -331,6 +345,41 @@ class AutonomousArchitectOrchestrator:
         from tools.code_cleaner import clean_backend_code
         result = clean_backend_code(str(backend_path))
         print(f"[ARCHITECT] Limpieza de código completada:\n{result}")
+
+    def _generate_tests(self, test_agent):
+        """Genera tests unitarios con pytest para el backend."""
+        backend_path = Path(self.workspace_path) / "backend"
+        if not backend_path.exists():
+            return
+        
+        code_files = []
+        for py_file in backend_path.rglob("*.py"):
+            if py_file.name != "__init__.py":
+                try:
+                    content = py_file.read_text(encoding='utf-8')
+                    code_files.append(f"=== {py_file.name} ===\n{content[:1500]}")
+                except:
+                    pass
+        
+        if not code_files:
+            return
+        
+        prompt = f"""Generá tests unitarios con pytest para el siguiente backend.
+Usá TestClient de FastAPI y pytest.
+Formato: ruta:::código.
+
+CÓDIGO DEL BACKEND:
+{chr(10).join(code_files[:5])}
+"""
+        try:
+            response = test_agent.kickoff(prompt)
+            if response:
+                test_code = response.raw if hasattr(response, 'raw') else str(response)
+                if test_code and ":::" in test_code:
+                    execute_plan(test_code, workspace_base=Path(self.workspace_path))
+                    print("[ARCHITECT] Tests generados automáticamente.")
+        except Exception as e:
+            print(f"[ARCHITECT] Error generando tests: {e}")
 
     def _validate_prompt_integrity(self, user_prompt: str) -> dict:
         validator = PromptIntegrity()

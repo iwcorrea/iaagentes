@@ -30,6 +30,6 @@ Rules:
 """,
     verbose=False,
     allow_delegation=False,
-    llm=get_llm(),
+    llm=get_llm(),  # ← lee el modelo en tiempo real
     tools=[]
 )

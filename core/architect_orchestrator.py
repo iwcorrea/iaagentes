@@ -38,6 +38,7 @@ from core.plan_validator import PlanValidator
 from core.project_auditor import ProjectAuditor
 from core.prompt_integrity import PromptIntegrity
 from core.code_reviewer import CodeReviewer
+from core.dependency_cache import DependencyCache
 from core.agent_status import set_all_status, set_agent_status, set_progress
 
 CREWAI_AVAILABLE = True
@@ -66,11 +67,10 @@ class AutonomousArchitectOrchestrator:
         self.agent_registry.register(CodeAgent(memory=self.memory))
         self.crew_available = CREWAI_AVAILABLE
         self.improvement_queue = ImprovementQueue()
-        self.generated_files = []   # archivos guardados en esta sesión
-        self.rate_limit_hits = 0    # contador de rate‑limits consecutivos
+        self.generated_files = []
+        self.rate_limit_hits = 0
 
     def _get_agents(self):
-        """Crea los agentes con el modelo actual, forzando reimportación."""
         importlib.reload(sys.modules.get("agents.director_agent", None) or importlib.import_module("agents.director_agent"))
         importlib.reload(sys.modules.get("agents.backend_agent", None) or importlib.import_module("agents.backend_agent"))
         importlib.reload(sys.modules.get("agents.frontend_agent", None) or importlib.import_module("agents.frontend_agent"))
@@ -94,7 +94,6 @@ class AutonomousArchitectOrchestrator:
         try:
             director_agent, backend_agent, frontend_agent, qa_agent, repair_agent, dependency_agent = self._get_agents()
 
-            # ─── VALIDACIÓN DEL PROMPT ───
             validator = PromptIntegrity()
             validation = validator.validate(user_prompt)
             if not validation["valid"]:
@@ -111,7 +110,6 @@ class AutonomousArchitectOrchestrator:
             if is_modification:
                 project_context = self._load_project_context_scoped(scope, mode)
 
-            # ─── FASE 1: GENERACIÓN ───
             if self.crew_available:
                 set_agent_status("Director IA", "working", "Planificando arquitectura...")
                 set_progress(10)
@@ -145,25 +143,28 @@ class AutonomousArchitectOrchestrator:
                 crew_code = self._generate_demo_plan(user_prompt)
                 qa_report = "CrewAI desactivado."
 
-            # Guardar project.json si no existe
             project_json = Path(self.workspace_path) / "project.json"
             if not project_json.exists():
                 project_json.write_text(json.dumps({"name": final_project_id, "created": datetime.now().isoformat()}, indent=2), encoding='utf-8')
             set_all_status("done", "Archivos escritos")
             set_progress(60)
 
-            # ─── AUDITORÍA POST-GENERACIÓN ───
             if self.rate_limit_hits == 0:
                 self._run_post_generation_audit(repair_agent)
 
-            # ─── CODE REVIEWER ESTÁTICO ───
             if self.rate_limit_hits == 0:
                 self._run_code_reviewer(repair_agent)
+
+            set_progress(65)
+
+            # ─── VALIDACIÓN DE SINTAXIS ───
+            print("[ARCHITECT] Validando sintaxis de archivos...")
+            self._validate_syntax()
+            set_progress(70)
 
             set_progress(75)
             self._save_project_context()
 
-            # ─── DEPENDENCIAS ───
             if self.rate_limit_hits == 0:
                 set_agent_status("Dependency Manager", "working", "Gestionando dependencias...")
                 try:
@@ -173,12 +174,10 @@ class AutonomousArchitectOrchestrator:
                     set_agent_status("Dependency Manager", "error")
             set_progress(85)
 
-            # ─── LIMPIEZA DE CÓDIGO ───
             print("[ARCHITECT] Aplicando herramientas de limpieza...")
             self._clean_generated_code()
-            set_progress(90)
+            set_progress(88)
 
-            # ─── GENERACIÓN DE TESTS ───
             if not turbo and self.crew_available and self.rate_limit_hits < MAX_RATE_LIMIT_RETRIES:
                 print("[ARCHITECT] Generando tests unitarios...")
                 try:
@@ -186,13 +185,21 @@ class AutonomousArchitectOrchestrator:
                     self._generate_tests(test_agent)
                 except Exception as e:
                     print(f"[ARCHITECT] Error al generar tests: {e}")
-            set_progress(95)
+            set_progress(92)
 
-            # ─── REPARACIÓN ITERATIVA ───
+            # ─── DESPLIEGUE Y DOCUMENTACIÓN ───
+            if not turbo and self.crew_available and self.rate_limit_hits < MAX_RATE_LIMIT_RETRIES:
+                print("[ARCHITECT] Generando archivos de despliegue y documentación...")
+                try:
+                    from agents.deploy_agent import deploy_agent
+                    self._generate_deploy_and_docs(deploy_agent)
+                except Exception as e:
+                    print(f"[ARCHITECT] Error al generar despliegue/docs: {e}")
+            set_progress(96)
+
             if not turbo and qa_report and "No se ejecutó QA" not in qa_report and self.crew_available and self.rate_limit_hits < MAX_RATE_LIMIT_RETRIES:
                 self._run_iterative_repair(repair_agent, crew_code, qa_report)
 
-            # ─── EJECUCIÓN FINAL ───
             self.memory.scan_project()
             self.memory.fix_imports_globally()
             self.refactor.analyze_and_fix(extended=True)
@@ -213,8 +220,6 @@ class AutonomousArchitectOrchestrator:
             return report
         finally:
             allow_sleep()
-
-    # ─── MÉTODOS DE SOPORTE ──────────────────────────────────────────
 
     def _run_with_rate_limit_retry(self, func, *args, **kwargs):
         for attempt in range(MAX_RATE_LIMIT_RETRIES):
@@ -347,11 +352,9 @@ class AutonomousArchitectOrchestrator:
         print(f"[ARCHITECT] Limpieza de código completada:\n{result}")
 
     def _generate_tests(self, test_agent):
-        """Genera tests unitarios con pytest para el backend."""
         backend_path = Path(self.workspace_path) / "backend"
         if not backend_path.exists():
             return
-        
         code_files = []
         for py_file in backend_path.rglob("*.py"):
             if py_file.name != "__init__.py":
@@ -360,10 +363,8 @@ class AutonomousArchitectOrchestrator:
                     code_files.append(f"=== {py_file.name} ===\n{content[:1500]}")
                 except:
                     pass
-        
         if not code_files:
             return
-        
         prompt = f"""Generá tests unitarios con pytest para el siguiente backend.
 Usá TestClient de FastAPI y pytest.
 Formato: ruta:::código.
@@ -380,6 +381,72 @@ CÓDIGO DEL BACKEND:
                     print("[ARCHITECT] Tests generados automáticamente.")
         except Exception as e:
             print(f"[ARCHITECT] Error generando tests: {e}")
+
+    def _validate_syntax(self):
+        """Ejecuta el validador de sintaxis y repara errores automáticamente."""
+        from core.syntax_validator import SyntaxValidator
+        validator = SyntaxValidator(self.workspace_path)
+        syntax_errors = validator.validate_all()
+        if syntax_errors:
+            print(f"[ARCHITECT] SyntaxValidator encontró {len(syntax_errors)} errores:")
+            for error in syntax_errors:
+                print(f"  - {error}")
+            if self.rate_limit_hits < MAX_RATE_LIMIT_RETRIES:
+                repair_prompt = f"""Corregí los siguientes errores de sintaxis en los archivos del proyecto.
+Devolvé los archivos corregidos en formato ruta:::código.
+
+ERRORES:
+{chr(10).join(f'- {e}' for e in syntax_errors)}
+"""
+                try:
+                    from agents.repair_agent import repair_agent
+                    repaired = repair_agent.kickoff(repair_prompt)
+                    if repaired:
+                        code = repaired.raw if hasattr(repaired, 'raw') else str(repaired)
+                        if ":::" in code:
+                            self._save_incremental(code)
+                            print("[ARCHITECT] Errores de sintaxis reparados automáticamente.")
+                except Exception as e:
+                    print(f"[ARCHITECT] Error al reparar sintaxis: {e}")
+        else:
+            print("[ARCHITECT] ✅ Sintaxis válida en todos los archivos.")
+
+    def _generate_deploy_and_docs(self, deploy_agent):
+        """Genera archivos de despliegue y documentación."""
+        backend_path = Path(self.workspace_path) / "backend"
+        frontend_path = Path(self.workspace_path) / "frontend"
+
+        project_info = []
+        if backend_path.exists():
+            for py_file in backend_path.rglob("*.py"):
+                if py_file.name != "__init__.py":
+                    try:
+                        content = py_file.read_text(encoding='utf-8')
+                        project_info.append(f"=== {py_file.relative_to(self.workspace_path)} ===\n{content[:1000]}")
+                    except:
+                        pass
+
+        prompt = f"""Generá los archivos de despliegue y documentación para este proyecto.
+Usá el formato ruta:::código.
+
+INFORMACIÓN DEL PROYECTO:
+{chr(10).join(project_info[:5])}
+
+Generá:
+1. Dockerfile
+2. docker-compose.yml
+3. .env.example
+4. README.md
+"""
+        try:
+            response = deploy_agent.kickoff(prompt)
+            if response:
+                deploy_code = response.raw if hasattr(response, 'raw') else str(response)
+                if deploy_code and ":::" in deploy_code:
+                    self._save_incremental(deploy_code)
+                    print("[ARCHITECT] Archivos de despliegue y documentación generados.")
+        except Exception as e:
+            print(f"[ARCHITECT] Error generando despliegue/docs: {e}")
 
     def _validate_prompt_integrity(self, user_prompt: str) -> dict:
         validator = PromptIntegrity()
@@ -435,4 +502,73 @@ CÓDIGO DEL BACKEND:
                 self._fix_dependencies(frontend_path, "frontend")
 
     def _fix_dependencies(self, base_path: Path, project_type: str):
-        pass
+        cache = DependencyCache()
+
+        code_files = []
+        for ext in ['.py', '.jsx', '.js']:
+            for f in base_path.rglob(f'*{ext}'):
+                if f.name not in ["requirements.txt", "package.json"]:
+                    code_files.append(str(f.relative_to(base_path)))
+        if not code_files:
+            return
+
+        known_imports = set()
+        for f in code_files:
+            full_path = base_path / f
+            try:
+                content = full_path.read_text(encoding='utf-8')
+                if f.endswith('.py'):
+                    import_matches = re.findall(r'^(?:from|import)\s+(\w+)', content, re.MULTILINE)
+                    known_imports.update(import_matches)
+                elif f.endswith(('.js', '.jsx')):
+                    import_matches = re.findall(r'import\s+.*?from\s+[\'"]([\w@/.-]+)', content)
+                    known_imports.update(import_matches)
+            except:
+                pass
+
+        cached_deps = {}
+        uncached_imports = []
+        for imp in sorted(known_imports):
+            pkg = cache.get(imp)
+            if pkg:
+                cached_deps[imp] = pkg
+            else:
+                uncached_imports.append(imp)
+
+        if not uncached_imports and cached_deps:
+            if project_type == "backend":
+                deps = sorted(set(cached_deps.values()))
+                base_deps = {"fastapi", "uvicorn", "sqlalchemy", "python-jose", "passlib", "python-multipart", "python-dotenv"}
+                all_deps = sorted(base_deps | set(deps))
+                execute_plan(f"backend/requirements.txt:::{chr(10).join(all_deps)}", workspace_base=Path(self.workspace_path))
+                print(f"[ARCHITECT] Dependencias generadas desde caché ({len(all_deps)} paquetes).")
+                return
+
+        if uncached_imports:
+            from agents.dependency_agent import dependency_agent
+            prompt = f"""Identificá el paquete pip necesario para cada uno de estos imports de Python:
+{chr(10).join(f'- {imp}' for imp in uncached_imports)}
+
+Respondé en formato JSON: {{"import": "paquete"}}
+Solo devolvé el JSON, sin explicaciones.
+"""
+            try:
+                response = dependency_agent.kickoff(prompt)
+                if response:
+                    text = response.raw if hasattr(response, 'raw') else str(response)
+                    try:
+                        new_mappings = json.loads(text)
+                        for imp, pkg in new_mappings.items():
+                            cache.add(imp, pkg)
+                            cached_deps[imp] = pkg
+                        print(f"[ARCHITECT] Caché actualizada con {len(new_mappings)} nuevas dependencias.")
+                    except json.JSONDecodeError:
+                        print("[ARCHITECT] No se pudo parsear la respuesta del agente. Usando solo caché.")
+            except Exception as e:
+                print(f"[ARCHITECT] Error consultando dependencias: {e}")
+
+        if cached_deps:
+            base_deps = {"fastapi", "uvicorn", "sqlalchemy", "python-jose", "passlib", "python-multipart", "python-dotenv"}
+            all_deps = sorted(base_deps | set(cached_deps.values()))
+            execute_plan(f"backend/requirements.txt:::{chr(10).join(all_deps)}", workspace_base=Path(self.workspace_path))
+            print(f"[ARCHITECT] Dependencias generadas (caché + LLM): {len(all_deps)} paquetes.")

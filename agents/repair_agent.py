@@ -4,15 +4,15 @@ from crewai import Agent, LLM
 
 load_dotenv()
 
-current_model = os.getenv("CURRENT_BRAIN_MODEL", "local-coder")
-
-llm = LLM(
-    model=current_model,
-    api_key="no-necesita-key-real",
-    base_url="http://localhost:4000/v1",
-    api_base="http://localhost:4000/v1",
-    stop=[]
-)
+def get_llm():
+    current_model = os.getenv("CURRENT_BRAIN_MODEL", "local-coder")
+    return LLM(
+        model=current_model,
+        api_key="no-necesita-key-real",
+        base_url="http://localhost:4000/v1",
+        api_base="http://localhost:4000/v1",
+        stop=[]
+    )
 
 repair_agent = Agent(
     role="Senior Debugging Engineer",
@@ -30,6 +30,6 @@ Rules:
 """,
     verbose=False,
     allow_delegation=False,
-    llm=llm,
-    tools=[]  # Repair Agent no necesita tools en ningún modo
+    llm=get_llm(),
+    tools=[]
 )

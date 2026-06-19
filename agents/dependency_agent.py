@@ -4,15 +4,15 @@ from crewai import Agent, LLM
 
 load_dotenv()
 
-current_model = os.getenv("CURRENT_BRAIN_MODEL", "local-coder")
-
-llm = LLM(
-    model=current_model,
-    api_key="no-necesita-key-real",
-    base_url="http://localhost:4000/v1",
-    api_base="http://localhost:4000/v1",
-    stop=[]
-)
+def get_llm():
+    current_model = os.getenv("CURRENT_BRAIN_MODEL", "local-coder")
+    return LLM(
+        model=current_model,
+        api_key="no-necesita-key-real",
+        base_url="http://localhost:4000/v1",
+        api_base="http://localhost:4000/v1",
+        stop=[]
+    )
 
 # Caché simple para dependencias
 _dep_cache = {}
@@ -41,6 +41,6 @@ Rules:
 """,
     verbose=True,
     allow_delegation=False,
-    llm=llm,
-    tools=[]  # Dependency Agent no necesita tools en ningún modo
+    llm=get_llm(),
+    tools=[]
 )

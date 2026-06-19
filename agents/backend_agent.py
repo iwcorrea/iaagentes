@@ -1,23 +1,26 @@
 import os
 from dotenv import load_dotenv
 from crewai import Agent, LLM
-from tools.custom_tools import read_file, write_file, run_terminal
-from tools.memory_tools import save_memory_tool, search_memory_tool
 
 load_dotenv()
 
-current_model = os.getenv("CURRENT_BRAIN_MODEL", "local-coder")
+def get_llm():
+    current_model = os.getenv("CURRENT_BRAIN_MODEL", "local-coder")
+    return LLM(
+        model=current_model,
+        api_key="no-necesita-key-real",
+        base_url="http://localhost:4000/v1",
+        api_base="http://localhost:4000/v1",
+        stop=[]
+    )
 
-llm = LLM(
-    model=current_model,
-    api_key="no-necesita-key-real",
-    base_url="http://localhost:4000/v1",
-    api_base="http://localhost:4000/v1",
-    stop=[]
-)
-
-supports_tools = current_model in ("cloud-coder", "hibrido-coder")
-agent_tools = [read_file, write_file, run_terminal, save_memory_tool, search_memory_tool] if supports_tools else []
+def get_tools():
+    current_model = os.getenv("CURRENT_BRAIN_MODEL", "local-coder")
+    if current_model in ("cloud-coder", "hibrido-coder"):
+        from tools.custom_tools import read_file, write_file, run_terminal
+        from tools.memory_tools import save_memory_tool, search_memory_tool
+        return [read_file, write_file, run_terminal, save_memory_tool, search_memory_tool]
+    return []
 
 backend_agent = Agent(
     role="Code Generator",
@@ -41,8 +44,8 @@ Rules:
 - Use environment variables for secrets (SECRET_KEY, DATABASE_URL).
 - Generate requirements.txt with ALL dependencies.
 """,
-    llm=llm,
-    tools=agent_tools,
+    llm=get_llm(),
+    tools=get_tools(),
     max_iter=1,
     verbose=False
 )

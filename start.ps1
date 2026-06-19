@@ -1,5 +1,5 @@
 # ============================================================
-# AI-ECOSYSTEM – Arranque centralizado (con Ollama local)
+# AI-ECOSYSTEM – Arranque centralizado (con opción de Ollama)
 # ============================================================
 Write-Host "🚀 Iniciando el ecosistema AI-ECOSYSTEM..." -ForegroundColor Cyan
 
@@ -13,16 +13,21 @@ if (Test-Path $venvPath) {
     exit 1
 }
 
-# 2. Iniciar Ollama si no está corriendo
-Write-Host "🦙 Verificando Ollama..." -ForegroundColor Yellow
-$ollamaRunning = Get-Process -Name "ollama" -ErrorAction SilentlyContinue
-if (-not $ollamaRunning) {
-    Write-Host "🦙 Iniciando Ollama (modelo local)..." -ForegroundColor Yellow
-    Start-Process -NoNewWindow -FilePath "ollama" -ArgumentList "serve"
-    Start-Sleep -Seconds 3
-    Write-Host "✅ Ollama iniciado." -ForegroundColor Green
+# 2. Preguntar si desea iniciar Ollama
+$ollamaChoice = Read-Host "¿Iniciar Ollama (modelo local)? (s/n)"
+if ($ollamaChoice -eq "s") {
+    Write-Host "🦙 Verificando Ollama..." -ForegroundColor Yellow
+    $ollamaRunning = Get-Process -Name "ollama" -ErrorAction SilentlyContinue
+    if (-not $ollamaRunning) {
+        Write-Host "🦙 Iniciando Ollama (modelo local)..." -ForegroundColor Yellow
+        Start-Process -NoNewWindow -FilePath "ollama" -ArgumentList "serve"
+        Start-Sleep -Seconds 3
+        Write-Host "✅ Ollama iniciado." -ForegroundColor Green
+    } else {
+        Write-Host "✅ Ollama ya está corriendo." -ForegroundColor Green
+    }
 } else {
-    Write-Host "✅ Ollama ya está corriendo." -ForegroundColor Green
+    Write-Host "🦙 Ollama no se iniciará (usando solo nube o híbrido si es necesario)." -ForegroundColor DarkYellow
 }
 
 # 3. Iniciar LiteLLM en segundo plano

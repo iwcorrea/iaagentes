@@ -2,11 +2,12 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 # =========================================================
-#  EXTRACCIÓN DE ARCHIVOS (PARSER ROBUSTO)
+#  EXTRACCIÓN DE ARCHIVOS (PARSER ROBUSTO CON REINTENTOS)
 # =========================================================
 def execute_plan(raw_output: str, workspace_base: Optional[Path] = None) -> str:
     if workspace_base is None:
@@ -18,34 +19,38 @@ def execute_plan(raw_output: str, workspace_base: Optional[Path] = None) -> str:
     pending_file = None
     pending_code = []
 
-    # Patrón para detectar inicio de archivo (nombre con extensión reconocida)
-    file_pattern = re.compile(r'^([\w\-./\\]+\.(?:py|jsx?|tsx?|css|html|yaml|json|txt|md))\s*(.*)')
+    file_pattern = re.compile(r'^([\w\-./\\]+\.(?:py|jsx?|tsx?|css|html|yaml|json|txt))\s*(.*)')
 
     for line in lines:
         line_str = line.strip()
         if not line_str:
             continue
 
-        # Caso 1: Separador ::: explícito
         if ":::" in line_str:
             if pending_file:
                 full_path = workspace_base / pending_file
                 full_path.parent.mkdir(parents=True, exist_ok=True)
                 content = '\n'.join(pending_code).strip()
                 if content:
-                    full_path.write_text(content, encoding='utf-8')
+                    for attempt in range(3):
+                        try:
+                            full_path.write_text(content, encoding='utf-8')
+                            break
+                        except PermissionError:
+                            if attempt < 2:
+                                print(f"[EXECUTOR] Permiso denegado para {full_path}, reintentando en 2s...")
+                                time.sleep(2)
+                            else:
+                                raise
                     files_created.append(str(full_path.relative_to(workspace_base)))
-
             parts = line_str.split(":::", 1)
             clean_path = parts[0].strip()
-            # Solo eliminamos el prefijo 'workspace/' si existe
-            for prefix in ["workspace/"]:
+            for prefix in ["backend/", "workspace/", "frontend/"]:
                 if clean_path.startswith(prefix):
                     clean_path = clean_path[len(prefix):]
             pending_file = clean_path
             pending_code = [parts[1].strip()] if len(parts) > 1 and parts[1].strip() else []
         else:
-            # Caso 2: Detección por patrón de archivo
             match = file_pattern.match(line_str)
             if match:
                 file_name = match.group(1)
@@ -56,11 +61,19 @@ def execute_plan(raw_output: str, workspace_base: Optional[Path] = None) -> str:
                         full_path.parent.mkdir(parents=True, exist_ok=True)
                         content = '\n'.join(pending_code).strip()
                         if content:
-                            full_path.write_text(content, encoding='utf-8')
+                            for attempt in range(3):
+                                try:
+                                    full_path.write_text(content, encoding='utf-8')
+                                    break
+                                except PermissionError:
+                                    if attempt < 2:
+                                        print(f"[EXECUTOR] Permiso denegado para {full_path}, reintentando en 2s...")
+                                        time.sleep(2)
+                                    else:
+                                        raise
                             files_created.append(str(full_path.relative_to(workspace_base)))
                     clean_path = file_name
-                    # Solo eliminamos el prefijo 'workspace/' si existe
-                    for prefix in ["workspace/"]:
+                    for prefix in ["backend/", "workspace/", "frontend/"]:
                         if clean_path.startswith(prefix):
                             clean_path = clean_path[len(prefix):]
                     pending_file = clean_path
@@ -74,7 +87,16 @@ def execute_plan(raw_output: str, workspace_base: Optional[Path] = None) -> str:
         full_path.parent.mkdir(parents=True, exist_ok=True)
         content = '\n'.join(pending_code).strip()
         if content:
-            full_path.write_text(content, encoding='utf-8')
+            for attempt in range(3):
+                try:
+                    full_path.write_text(content, encoding='utf-8')
+                    break
+                except PermissionError:
+                    if attempt < 2:
+                        print(f"[EXECUTOR] Permiso denegado para {full_path}, reintentando en 2s...")
+                        time.sleep(2)
+                    else:
+                        raise
             files_created.append(str(full_path.relative_to(workspace_base)))
 
     if not files_created:

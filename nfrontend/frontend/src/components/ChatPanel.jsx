@@ -26,10 +26,11 @@ export default function ChatPanel() {
   const [scope, setScope] = useState('all')
   const [mode, setMode] = useState('full')
   const [turbo, setTurbo] = useState(false)
-  const [brainModel, setBrainModel] = useState('local-coder')
+  const [brainModel, setBrainModel] = useState('cloud-coder')
   const [agentStatus, setAgentStatus] = useState({})
   const [progressMessages, setProgressMessages] = useState([])
   const [agentProgress, setAgentProgress] = useState(0)
+  const [finalReport, setFinalReport] = useState(null)
   const { activeProjectId, projectName, setActiveProjectId, chatMessages, setChatMessages } = useProject()
   const bottomRef = useRef(null)
 
@@ -43,7 +44,6 @@ export default function ChatPanel() {
     setTimeout(() => toast.remove(), 4000)
   }
 
-  // Polling del estado de los agentes y progreso
   useEffect(() => {
     let interval
     if (loading) {
@@ -81,7 +81,7 @@ export default function ChatPanel() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages, progressMessages])
+  }, [chatMessages, progressMessages, finalReport])
 
   const send = useCallback(async () => {
     const text = input.trim()
@@ -89,6 +89,7 @@ export default function ChatPanel() {
 
     setInput('')
     setLoading(true)
+    setFinalReport(null)
 
     const userMsg = { role: 'user', content: text }
     const updatedMessages = [...chatMessages, userMsg]
@@ -105,6 +106,7 @@ export default function ChatPanel() {
       const reply = res.data.choices?.[0]?.message?.content || 'Sin respuesta'
       const finalMessages = [...updatedMessages, { role: 'assistant', content: reply }]
       setChatMessages(finalMessages)
+      setFinalReport(reply)
 
       const projectIdMatch = reply.match(/Proyecto ID: (\w+)/)
       if (projectIdMatch && !activeProjectId) {
@@ -154,7 +156,6 @@ export default function ChatPanel() {
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
                 <span className="font-medium">Los agentes están trabajando...</span>
               </div>
-              {/* Barra de progreso */}
               <div className="w-full bg-gray-700 rounded-full h-2 mb-3">
                 <div
                   className="bg-gradient-to-r from-blue-500 to-cyan-500 h-2 rounded-full transition-all duration-1000"
@@ -169,6 +170,14 @@ export default function ChatPanel() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+        {finalReport && (
+          <div className="flex justify-start">
+            <div className="bg-gray-800/80 border border-gray-700/50 px-5 py-3 rounded-2xl text-sm text-gray-300 max-w-[80%]">
+              <div className="font-medium text-green-400 mb-2">✅ Generación completada</div>
+              <pre className="whitespace-pre-wrap font-sans text-xs">{finalReport}</pre>
             </div>
           </div>
         )}

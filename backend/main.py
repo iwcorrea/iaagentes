@@ -1,15 +1,22 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from .routers import auth, wallets, strategies, trades, portfolio
+from .database import engine, Base
 
-app = FastAPI()
+Base.metadata.create_all(bind=engine)
 
-@app.get("/")
-async def root():
-    return {"message": "Bienvenido al Ecommerce Campesino"}
+app = FastAPI(title="DeFiAgent API")
 
-@app.get("/products")
-async def get_products():
-    return {"products": ["Maíz", "Frijoles", "Café", "Plátanos"]}
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.get("/users")
-async def get_users():
-    return {"users": ["campesino1", "comprador1"]}
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(wallets.router, prefix="/wallets", tags=["wallets"])
+app.include_router(strategies.router, prefix="/strategies", tags=["strategies"])
+app.include_router(trades.router, prefix="/trades", tags=["trades"])
+app.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])

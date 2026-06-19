@@ -64,9 +64,9 @@ class AutonomousArchitectOrchestrator:
         self.agent_registry.register(CodeAgent(memory=self.memory))
         self.crew_available = CREWAI_AVAILABLE
         self.improvement_queue = ImprovementQueue()
+        self.generated_files = []  # Registro de archivos creados en esta sesión
 
     def _get_agents(self):
-        """Crea los agentes con el modelo actual, forzando reimportación."""
         importlib.reload(sys.modules.get("agents.director_agent", None) or importlib.import_module("agents.director_agent"))
         importlib.reload(sys.modules.get("agents.backend_agent", None) or importlib.import_module("agents.backend_agent"))
         importlib.reload(sys.modules.get("agents.frontend_agent", None) or importlib.import_module("agents.frontend_agent"))
@@ -85,11 +85,10 @@ class AutonomousArchitectOrchestrator:
 
     def orchestrate_project(self, user_prompt: str, is_modification: bool = False, scope: str = "all", mode: str = "full", turbo: bool = False) -> str:
         prevent_sleep()
+        self.generated_files = []
         try:
-            # ─── FORZAR CREACIÓN DE AGENTES CON EL MODELO ACTUAL ───
             director_agent, backend_agent, frontend_agent, qa_agent, repair_agent, dependency_agent = self._get_agents()
 
-            # ─── VALIDACIÓN DEL PROMPT ───
             validator = PromptIntegrity()
             validation = validator.validate(user_prompt)
             if not validation["valid"]:
@@ -119,6 +118,8 @@ class AutonomousArchitectOrchestrator:
                     )
                     if not crew_code or crew_code.isspace():
                         raise ValueError("El flujo CrewAI no generó código.")
+                    # Guardar archivos inmediatamente después de generarlos
+                    self._save_incremental(crew_code)
                     set_agent_status("Director IA", "done", "Plan completado")
                     set_agent_status("Code Generator", "done", "Backend generado")
                     set_agent_status("Frontend Designer", "done", "Frontend generado")
@@ -137,14 +138,13 @@ class AutonomousArchitectOrchestrator:
                 crew_code = self._generate_demo_plan(user_prompt)
                 qa_report = "CrewAI desactivado."
 
-            execute_plan(crew_code, workspace_base=Path(self.workspace_path))
             project_json = Path(self.workspace_path) / "project.json"
             if not project_json.exists():
                 project_json.write_text(json.dumps({"name": final_project_id, "created": datetime.now().isoformat()}, indent=2), encoding='utf-8')
             set_all_status("done", "Archivos escritos")
             set_progress(60)
 
-            # ─── AUDITORÍA POST-GENERACIÓN ───
+            # Auditoría post-generación
             prj_auditor = ProjectAuditor(self.workspace_path)
             issues = prj_auditor.audit()
             if issues:
@@ -158,12 +158,12 @@ class AutonomousArchitectOrchestrator:
                         if repaired:
                             code = repaired.raw if hasattr(repaired, 'raw') else str(repaired)
                             if ":::" in code:
-                                execute_plan(code, workspace_base=Path(self.workspace_path))
+                                self._save_incremental(code)
                                 print("[ARCHITECT] Problemas reparados automáticamente.")
                     except Exception as e:
                         print(f"[ARCHITECT] Error al reparar: {e}")
 
-            # ─── CODE REVIEWER ESTÁTICO ───
+            # Code Reviewer estático
             print("[ARCHITECT] Ejecutando CodeReviewer...")
             reviewer = CodeReviewer(self.workspace_path)
             review_issues = reviewer.review_backend()
@@ -178,7 +178,7 @@ class AutonomousArchitectOrchestrator:
                         if repaired:
                             code = repaired.raw if hasattr(repaired, 'raw') else str(repaired)
                             if ":::" in code:
-                                execute_plan(code, workspace_base=Path(self.workspace_path))
+                                self._save_incremental(code)
                                 print("[ARCHITECT] Problemas de código reparados automáticamente.")
                     except Exception as e:
                         print(f"[ARCHITECT] Error al reparar: {e}")
@@ -186,7 +186,7 @@ class AutonomousArchitectOrchestrator:
 
             self._save_project_context()
 
-            # ─── DEPENDENCIAS ───
+            # Dependencias
             set_agent_status("Dependency Manager", "working", "Gestionando dependencias...")
             try:
                 self._ensure_dependencies()
@@ -195,12 +195,12 @@ class AutonomousArchitectOrchestrator:
                 set_agent_status("Dependency Manager", "error")
             set_progress(85)
 
-            # ─── LIMPIEZA DE CÓDIGO ───
+            # Limpieza de código
             print("[ARCHITECT] Aplicando herramientas de limpieza...")
             self._clean_generated_code()
             set_progress(95)
 
-            # ─── REPARACIÓN ITERATIVA ───
+            # Reparación iterativa con límite diario
             if not turbo and qa_report and "No se ejecutó QA" not in qa_report and self.crew_available:
                 for iteration in range(3):
                     set_agent_status("Repair Agent", "working", f"Reparación {iteration+1}/3...")
@@ -214,7 +214,7 @@ class AutonomousArchitectOrchestrator:
                         if repaired_code and not str(repaired_code).isspace():
                             repaired_text = repaired_code.raw if hasattr(repaired_code, 'raw') else str(repaired_code)
                             if repaired_text:
-                                execute_plan(repaired_text, workspace_base=Path(self.workspace_path))
+                                self._save_incremental(repaired_text)
                                 crew_code = repaired_text
                                 set_agent_status("Repair Agent", "done", "Reparación aplicada")
                     except TimeoutError:
@@ -243,14 +243,26 @@ class AutonomousArchitectOrchestrator:
             status = "✅ SALUDABLE" if success else "⚠️ REQUIERE ATENCIÓN"
             report = f"🧠 PROYECTO {final_project_id}\nESTADO: {status}\nSALIDA: {execution_result.get('stdout', '')[:200]}\nERROR: {execution_result.get('stderr', '')[:200]}\nQA: {qa_report[:300] if not turbo else 'Turbo: QA omitido'}"
             if issues:
-                report += f"\n🔍 Auditoría: {len(issues)} problemas encontrados y reparados."
+                report += f"\n🔍 Auditoría: {len(issues)} problemas encontrados."
             if review_issues:
-                report += f"\n📝 CodeReview: {len(review_issues)} problemas de código corregidos."
+                report += f"\n📝 CodeReview: {len(review_issues)} problemas de código."
+            if self.generated_files:
+                report += f"\n📁 Archivos generados: {len(self.generated_files)}"
             set_all_status("done", "Proyecto completado")
             set_progress(100)
             return report
         finally:
             allow_sleep()
+
+    def _save_incremental(self, crew_code: str):
+        """Guarda cada archivo en el momento en que se genera, registrándolo."""
+        execute_plan(crew_code, workspace_base=Path(self.workspace_path))
+        # Registrar archivos creados
+        for f in Path(self.workspace_path).rglob("*"):
+            if f.is_file():
+                rel = str(f.relative_to(self.workspace_path))
+                if rel not in self.generated_files:
+                    self.generated_files.append(rel)
 
     def _run_ecommerce_workflow(self, user_prompt, project_context, is_modification, director_agent, backend_agent, frontend_agent, qa_agent):
         from workflows.ecommerce_workflow import run_ecommerce_workflow
@@ -335,5 +347,4 @@ class AutonomousArchitectOrchestrator:
                 self._fix_dependencies(frontend_path, "frontend")
 
     def _fix_dependencies(self, base_path: Path, project_type: str):
-        # ... (código existente)
         pass

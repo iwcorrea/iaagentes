@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import List, Dict, Any
 from core.architecture_memory import ArchitectureMemory
 from core.improvement_queue import ImprovementQueue
-from agents.repair_agent import repair_agent
 
 
 class MetaAgent:
@@ -129,8 +128,11 @@ class MetaAgent:
     def _get_repair_suggestion(self, file_path: Path, issue: str, original_code: str) -> str:
         """
         Llama al Repair Agent para obtener una versión corregida del archivo completo.
+        Importa el Repair Agent dinámicamente para asegurar que usa el modelo actual.
         """
         try:
+            # Importar bajo demanda para reflejar el modelo actual (evita caché obsoleto)
+            from agents.repair_agent import repair_agent
             prompt = f"""
 Tienes que corregir el siguiente archivo. El problema es:
 {issue}

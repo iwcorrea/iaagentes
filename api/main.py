@@ -108,7 +108,6 @@ def chat_completions(
         user_prompt = request.messages[-1].content
         intent = detect_intent(user_prompt)
 
-        # Forzar el modelo en el entorno
         model_map = {
             "local-coder": "local-coder",
             "cloud-coder": "cloud-coder",
@@ -117,7 +116,6 @@ def chat_completions(
         actual_model = model_map.get(brain_model, "local-coder")
         os.environ["CURRENT_BRAIN_MODEL"] = actual_model
 
-        # Limpiar agresivamente la caché de módulos para que todos los agentes lean el modelo correcto
         for mod in list(sys.modules.keys()):
             if mod.startswith("agents.") or mod == "core.meta_agent":
                 del sys.modules[mod]
@@ -166,7 +164,6 @@ def chat_completions(
             "choices": [{"index": 0, "message": {"role": "assistant", "content": f"❌ Error del servidor:\n\n{str(e)}"}, "finish_reason": "stop"}]
         }
 
-# ─── VALIDACIÓN DE PROMPT ───
 @app.post("/api/validate-prompt")
 def validate_prompt_endpoint(data: dict):
     prompt = data.get("prompt", "")
@@ -175,7 +172,6 @@ def validate_prompt_endpoint(data: dict):
     validation = validate_prompt(prompt)
     return validation
 
-# ─── ASISTENTE GUIADO ───
 @app.get("/api/guided-templates")
 def get_guided_templates():
     return {"templates": guided_builder.get_templates()}
@@ -216,7 +212,6 @@ def create_guided_project(data: dict):
         "message": "Proyecto creado exitosamente"
     }
 
-# ─── CONFIGURACIÓN ───
 @app.get("/api/settings")
 def get_settings():
     settings = load_settings()
@@ -235,7 +230,6 @@ def update_settings(settings: dict):
     save_settings(current)
     return {"status": "ok", "message": "Configuración guardada."}
 
-# ─── PROYECTOS ───
 @app.get("/projects")
 def list_projects():
     project_ids = project_manager.list_projects()
@@ -290,27 +284,59 @@ def execute_project_endpoint(project_id: str):
     if not project_path:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
+    result = {
+        "success": False,
+        "stdout": "",
+        "stderr": "",
+        "execution_type": "desconocido",
+        "url": None,
+        "dependencies_installed": False,
+        "steps": []
+    }
+
     req_file = project_path / "backend" / "requirements.txt"
     if not req_file.exists():
         req_file = project_path / "requirements.txt"
 
     if req_file.exists():
+        result["steps"].append("📦 Instalando dependencias...")
         try:
-            subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req_file)], capture_output=True, text=True, timeout=60)
+            install_result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
+                capture_output=True, text=True, timeout=60
+            )
+            if install_result.returncode == 0:
+                result["dependencies_installed"] = True
+                result["steps"].append("✅ Dependencias instaladas correctamente.")
+            else:
+                result["stderr"] = install_result.stderr
+                result["steps"].append(f"❌ Error al instalar dependencias:\n{install_result.stderr}")
+                return result
         except subprocess.TimeoutExpired:
-            return {"success": False, "stdout": "", "stderr": "Timeout instalando dependencias.", "execution_type": "desconocido"}
+            result["stderr"] = "Timeout instalando dependencias."
+            result["steps"].append("❌ Timeout instalando dependencias.")
+            return result
+    else:
+        result["steps"].append("⚠️ No se encontró requirements.txt. Omitiendo instalación de dependencias.")
 
     from core.executor import ProjectExecutor
     executor = ProjectExecutor(str(project_path))
-    result = executor.execute_project()
-    return {
-        "success": result.get("success", False),
-        "stdout": result.get("stdout", ""),
-        "stderr": result.get("stderr", ""),
-        "execution_type": result.get("execution_type", "desconocido")
-    }
+    exec_result = executor.execute_project()
 
-# ─── CHAT PERSISTENTE POR PROYECTO ───
+    result["success"] = exec_result.get("success", False)
+    result["stdout"] = exec_result.get("stdout", "")
+    result["stderr"] = exec_result.get("stderr", "")
+    result["execution_type"] = exec_result.get("execution_type", "desconocido")
+
+    if result["success"]:
+        result["url"] = "http://localhost:8001"
+        result["steps"].append(f"✅ Proyecto iniciado en {result['url']}")
+        result["steps"].append("🔗 Abrí la pestaña 'Vista previa' para verlo.")
+    else:
+        result["steps"].append(f"❌ Falló la ejecución:\n{result['stderr'] or result['stdout']}")
+
+    return result
+
 @app.get("/projects/{project_id}/chat")
 def get_project_chat(project_id: str):
     project_path = project_manager.get_project_path(project_id)
@@ -365,7 +391,6 @@ def audit_project(project_id: str):
     issues = auditor.audit()
     return {"project_id": project_id, "issues": issues, "status": "ok" if not issues else "attention"}
 
-# ─── MEJORAS ───
 @app.post("/system/propose-improvement")
 def propose_improvement(proposal: ImprovementProposal):
     proposal_id = improvement_queue.add_proposal(
@@ -461,7 +486,6 @@ def get_quality_metrics(project_id: Optional[str] = Query(None)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error obteniendo métricas: {str(e)}")
 
-# ─── AGENTES ───
 @app.get("/api/agents")
 def get_agents_info():
     from core.agent_scanner import ComponentScanner

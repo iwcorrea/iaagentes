@@ -3,24 +3,30 @@ import api from '../api/axios'
 import { useProject } from '../context/ProjectContext'
 
 export default function ConsolePanel() {
-  const { activeProjectId } = useProject()
+  const { activeProjectId, setExecutionUrl } = useProject()
   const [output, setOutput] = useState('')
   const [executing, setExecuting] = useState(false)
 
   const execute = async () => {
     if (!activeProjectId || executing) return
     setExecuting(true)
-    setOutput('🔄 Ejecutando proyecto...\n')
+    setOutput('🔄 Preparando ejecución...\n')
     try {
       const res = await api.post(`/projects/${activeProjectId}/execute`)
       const data = res.data
-      if (data.success) {
-        setOutput(prev => prev + `✅ Proyecto iniciado en http://localhost:8001\n${data.stdout || ''}`)
-      } else {
-        setOutput(prev => prev + `❌ Error:\n${data.stderr || data.stdout || 'Error desconocido'}`)
+
+      if (data.steps && data.steps.length > 0) {
+        setOutput(data.steps.join('\n'))
+      }
+
+      if (data.success && data.url) {
+        setExecutionUrl(data.url)
+        setOutput(prev => prev + `\n\n✅ Proyecto ejecutado correctamente.\n🔗 URL: ${data.url}\n📱 La Vista previa se actualizó automáticamente.`)
+      } else if (!data.success) {
+        setOutput(prev => prev + `\n\n❌ Error al ejecutar:\n${data.stderr || data.stdout || 'Error desconocido'}`)
       }
     } catch (err) {
-      setOutput(prev => prev + '❌ Error de conexión al ejecutar.\n')
+      setOutput(prev => prev + '\n❌ Error de conexión al ejecutar.')
     } finally {
       setExecuting(false)
     }
@@ -48,7 +54,7 @@ export default function ConsolePanel() {
         </button>
       </div>
       <div className="flex-1 bg-gray-950 border border-gray-700/50 rounded-xl p-4 font-mono text-sm text-green-400 overflow-y-auto whitespace-pre-wrap">
-        {output || 'Presioná "Ejecutar proyecto" para ver la salida.\n\nEl proyecto se ejecutará en http://localhost:8001.'}
+        {output || 'Presioná "Ejecutar proyecto" para instalar dependencias y correr el backend.\n\nEl proyecto se ejecutará en http://localhost:8001.'}
       </div>
     </div>
   )

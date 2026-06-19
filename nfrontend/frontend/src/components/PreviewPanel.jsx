@@ -1,7 +1,7 @@
 import { useProject } from '../context/ProjectContext'
 
 export default function PreviewPanel() {
-  const { activeProjectId } = useProject()
+  const { activeProjectId, executionUrl } = useProject()
 
   if (!activeProjectId) {
     return (
@@ -13,19 +13,25 @@ export default function PreviewPanel() {
     )
   }
 
+  if (!executionUrl) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-gray-500">
+        <div className="text-6xl mb-4">🚀</div>
+        <p className="text-lg font-medium text-gray-400">Proyecto no ejecutado</p>
+        <p className="text-sm text-gray-600 mt-1">Andá a la pestaña <span className="text-green-400 font-semibold">Consola</span> y presioná "Ejecutar proyecto".</p>
+      </div>
+    )
+  }
+
   return (
     <div className="h-full p-4">
-      <div className="bg-gray-900/50 border border-gray-700/50 rounded-xl overflow-hidden h-full flex items-center justify-center">
+      <div className="bg-gray-900/50 border border-gray-700/50 rounded-xl overflow-hidden h-full">
         <iframe
-          src="http://localhost:8001"
+          src={executionUrl}
           className="w-full h-full"
           sandbox="allow-scripts allow-same-origin"
           title="Vista previa del proyecto"
-          onError={(e) => { e.target.style.display = 'none'; }}
         />
-        <div className="absolute text-gray-600 text-sm pointer-events-none">
-          {!activeProjectId && 'El proyecto no se ha ejecutado aún.'}
-        </div>
       </div>
     </div>
   )

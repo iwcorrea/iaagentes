@@ -7,20 +7,20 @@ export function ProjectProvider({ children }) {
   const [activeProjectId, setActiveProjectId] = useState(null)
   const [projectName, setProjectName] = useState('')
   const [chatMessages, setChatMessages] = useState([])
+  const [executionUrl, setExecutionUrl] = useState(null)
 
   useEffect(() => {
     if (activeProjectId) {
-      // Cargar nombre
       api.get(`/projects/${activeProjectId}/name`)
         .then(res => setProjectName(res.data.name || activeProjectId))
         .catch(() => setProjectName(activeProjectId))
-      // Cargar historial de chat
       api.get(`/projects/${activeProjectId}/chat`)
         .then(res => setChatMessages(res.data.messages || []))
         .catch(() => setChatMessages([]))
     } else {
       setProjectName('')
       setChatMessages([])
+      setExecutionUrl(null)
     }
   }, [activeProjectId])
 
@@ -34,7 +34,8 @@ export function ProjectProvider({ children }) {
     <ProjectContext.Provider value={{ 
       activeProjectId, setActiveProjectId, 
       projectName, updateProjectName,
-      chatMessages, setChatMessages
+      chatMessages, setChatMessages,
+      executionUrl, setExecutionUrl
     }}>
       {children}
     </ProjectContext.Provider>

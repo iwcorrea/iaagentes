@@ -1,115 +1,59 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import api from '../api/axios';
+import { createContext, useContext, useState, useEffect } from 'react'
+import api from '../api/axios'
 
-const ProjectContext = createContext();
+const ProjectContext = createContext()
 
-export const ProjectProvider = ({ children }) => {
-  const [projects, setProjects] = useState([]);
-  const [selectedProject, setSelectedProject] = useState(null);
-  const [consoleOutput, setConsoleOutput] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [agentStatus, setAgentStatus] = useState({});
-  const [progress, setProgress] = useState(0);
-
-  const fetchProjects = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await api.get('/api/projects');
-      const data = Array.isArray(response.data) ? response.data : [];
-      setProjects(data);
-      if (data.length > 0 && !selectedProject) {
-        setSelectedProject(data[0]);
-      }
-      return data;
-    } catch (err) {
-      console.error('Error fetching projects:', err);
-      setError('No se pudieron cargar los proyectos');
-      setProjects([]);
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const createProject = async (prompt) => {
-    try {
-      const response = await api.post('/api/projects', { prompt });
-      const newProject = response.data;
-      setProjects((prev) => [...prev, newProject]);
-      setSelectedProject(newProject);
-      return newProject;
-    } catch (err) {
-      console.error('Error creating project:', err);
-      throw err;
-    }
-  };
-
-  const selectProject = (project) => {
-    setSelectedProject(project);
-  };
-
-  const fetchAgentStatus = async () => {
-    try {
-      const response = await api.get('/api/agents');
-      setAgentStatus(response.data || {});
-      if (response.data?.progress !== undefined) {
-        setProgress(response.data.progress);
-      }
-    } catch (err) {
-      console.error('Error fetching agent status:', err);
-      // No mostrar error al usuario, solo log
-    }
-  };
-
-  const fetchProgress = async () => {
-    try {
-      const response = await api.get('/api/progress');
-      if (response.data?.progress !== undefined) {
-        setProgress(response.data.progress);
-      }
-    } catch (err) {
-      console.error('Error fetching progress:', err);
-    }
-  };
+export function ProjectProvider({ children }) {
+  const [activeProjectId, setActiveProjectId] = useState(null)
+  const [projectName, setProjectName] = useState('')
+  const [chatMessages, setChatMessages] = useState([])
+  const [executionUrl, setExecutionUrl] = useState(null)
+  const [projectFiles, setProjectFiles] = useState([])
+  const [projectStats, setProjectStats] = useState({ files: 0, lastGeneration: null })
 
   useEffect(() => {
-    fetchProjects();
-    const interval = setInterval(() => {
-      fetchAgentStatus();
-      fetchProgress();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    if (activeProjectId) {
+      api.get(`/projects/${activeProjectId}/name`)
+        .then(res => setProjectName(res.data.name || activeProjectId))
+        .catch(() => setProjectName(activeProjectId))
+      api.get(`/projects/${activeProjectId}/chat`)
+        .then(res => setChatMessages(res.data.messages || []))
+        .catch(() => setChatMessages([]))
+      api.get(`/projects/${activeProjectId}/files`)
+        .then(res => {
+          const files = res.data.files || []
+          setProjectFiles(files)
+          setProjectStats({ files: files.length, lastGeneration: new Date().toISOString() })
+        })
+        .catch(() => setProjectFiles([]))
+    } else {
+      setProjectName('')
+      setChatMessages([])
+      setExecutionUrl(null)
+      setProjectFiles([])
+      setProjectStats({ files: 0, lastGeneration: null })
+    }
+  }, [activeProjectId])
+
+  const updateProjectName = async (name) => {
+    if (!activeProjectId) return
+    await api.put(`/projects/${activeProjectId}/name`, { name })
+    setProjectName(name)
+  }
 
   return (
-    <ProjectContext.Provider
-      value={{
-        projects,
-        selectedProject,
-        consoleOutput,
-        loading,
-        error,
-        agentStatus,
-        progress,
-        fetchProjects,
-        createProject,
-        selectProject,
-        setConsoleOutput,
-        fetchAgentStatus,
-        fetchProgress,
-      }}
-    >
+    <ProjectContext.Provider value={{ 
+      activeProjectId, setActiveProjectId, 
+      projectName, updateProjectName,
+      chatMessages, setChatMessages,
+      executionUrl, setExecutionUrl,
+      projectFiles, projectStats
+    }}>
       {children}
     </ProjectContext.Provider>
-  );
-};
+  )
+}
 
-export const useProject = () => {
-  const context = useContext(ProjectContext);
-  if (!context) {
-    throw new Error('useProject must be used within a ProjectProvider');
-  }
-  return context;
-};
+export function useProject() {
+  return useContext(ProjectContext)
+}

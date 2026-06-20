@@ -1,28 +1,50 @@
+# Core
 fastapi==0.115.6
-uvicorn==0.27.0
+uvicorn[standard]==0.34.0
 python-multipart==0.0.9
 starlette==0.40.0
-crewai
-crewai-tools
-litellm
-langchain
-langchain-community
-langchain-huggingface
-chromadb
-sentence-transformers
-tokenizers
-sqlalchemy
-python-jose[cryptography]
-passlib[bcrypt]
-bcrypt
-python-dotenv
-networkx
-pydantic
-httpx
-click
-requests
-pyyaml
-black>=24.0.0
-isort>=5.13.0
-bandit>=1.7.0
-cachetools>=5.3.0
+
+# IA/Agentes
+crewai==0.126.0
+crewai-tools==0.76.0
+langchain==0.1.20
+langchain-community==0.0.38
+langchain-openai==0.1.7
+langchain-huggingface==0.0.3
+litellm==1.68.0
+instructor==1.12.0
+openai==1.75.0
+
+# Vector DB
+chromadb==1.1.1
+sentence-transformers==5.5.1
+tokenizers==0.22.2
+
+# ORM y DB
+sqlalchemy==2.0.38
+alembic==1.18.4
+
+# Seguridad y autenticación
+bcrypt==5.0.0
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+auth0-python==5.6.0
+
+# Utilidades
+python-dotenv==1.1.0
+requests==2.32.5
+httpx==0.28.1
+pyyaml==6.0.3
+click==8.1.7
+cachetools==7.1.4
+networkx==3.4.2
+pydantic==2.10.6
+pydantic-settings==2.10.1
+typing-extensions==4.15.0
+
+# Herramientas de desarrollo / QA
+black==24.10.0
+isort==5.13.2
+bandit==1.9.4
+
+# Eliminadas las problemáticas: embedchain, gptcache, etc.

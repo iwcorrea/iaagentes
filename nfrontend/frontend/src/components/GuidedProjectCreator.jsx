@@ -1,163 +1,120 @@
-import { useState, useEffect } from 'react'
-import api from '../api/axios'
+import React, { useState, useEffect } from 'react';
+import { useProject } from '../context/ProjectContext';
+import { Rocket, Loader2 } from 'lucide-react';
+import api from '../api/axios';
 
-export default function GuidedProjectCreator({ onClose, onProjectCreated }) {
-  const [step, setStep] = useState(0)
-  const [templates, setTemplates] = useState([])
-  const [selectedTemplate, setSelectedTemplate] = useState('')
-  const [questions, setQuestions] = useState([])
-  const [answers, setAnswers] = useState({})
-  const [previewPrompt, setPreviewPrompt] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState(null)
+const GuidedProjectCreator = () => {
+  const { createProject } = useProject();
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [questions, setQuestions] = useState([]);
+  const [answers, setAnswers] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    api.get('/api/guided-templates')
-      .then(res => setTemplates(res.data.templates || []))
-      .catch(() => setTemplates([]))
-  }, [])
+    const fetchTemplates = async () => {
+      try {
+        const response = await api.get('/api/guided-templates');
+        setTemplates(response.data?.templates || []);
+      } catch (error) {
+        console.error('Error fetching templates:', error);
+      }
+    };
+    fetchTemplates();
+  }, []);
 
-  const handleSelectTemplate = async (id) => {
-    setSelectedTemplate(id)
-    const res = await api.get(`/api/guided-questions/${id}`)
-    setQuestions(res.data.questions || [])
-    setAnswers({})
-    setStep(1)
-  }
+  useEffect(() => {
+    if (!selectedTemplate) {
+      setQuestions([]);
+      setAnswers({});
+      return;
+    }
+    const fetchQuestions = async () => {
+      try {
+        const response = await api.get(`/api/guided-questions/${selectedTemplate}`);
+        setQuestions(response.data?.questions || []);
+        setAnswers({});
+      } catch (error) {
+        console.error('Error fetching questions:', error);
+      }
+    };
+    fetchQuestions();
+  }, [selectedTemplate]);
 
-  const handlePreview = async () => {
-    setLoading(true)
-    const res = await api.post('/api/guided-preview', { template_id: selectedTemplate, answers })
-    setPreviewPrompt(res.data.prompt)
-    setStep(2)
-    setLoading(false)
-  }
+  const handleAnswerChange = (questionId, value) => {
+    setAnswers((prev) => ({ ...prev, [questionId]: value }));
+  };
 
   const handleCreate = async () => {
-    setLoading(true)
-    const res = await api.post('/api/create-guided-project', { template_id: selectedTemplate, answers })
-    setResult(res.data)
-    setStep(3)
-    setLoading(false)
-    if (onProjectCreated) onProjectCreated(res.data.project_id)
-  }
+    setCreating(true);
+    try {
+      const response = await api.post('/api/create-guided-project', {
+        template_id: selectedTemplate,
+        answers,
+      });
+      await createProject(response.data.prompt);
+    } catch (error) {
+      console.error('Error creating guided project:', error);
+    } finally {
+      setCreating(false);
+    }
+  };
 
-  if (step === 0) {
-    return (
-      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 w-full max-w-3xl max-h-[85vh] overflow-y-auto">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-white">✨ Proyecto Guiado</h2>
-            <button onClick={onClose} className="text-gray-400 hover:text-white text-xl">✕</button>
-          </div>
-          <p className="text-gray-400 mb-6">Elegí el tipo de proyecto. Te mostraremos exactamente qué archivos se generarán.</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {templates.map(t => (
-              <button key={t.id} onClick={() => handleSelectTemplate(t.id)}
-                className="bg-gray-700/50 border border-gray-600 rounded-xl p-4 text-left hover:border-blue-500 transition group">
-                <h3 className="font-bold text-gray-200 group-hover:text-blue-400">{t.name}</h3>
-                <p className="text-sm text-gray-400 mt-1">{t.description}</p>
-                <div className="mt-3 flex flex-wrap gap-1">
-                  {t.files_generated?.slice(0, 5).map(f => (
-                    <span key={f} className="text-xs bg-gray-600 text-gray-300 px-2 py-0.5 rounded">{f}</span>
-                  ))}
-                  {(t.files_generated?.length || 0) > 5 && (
-                    <span className="text-xs text-gray-500">+{t.files_generated.length - 5} más</span>
-                  )}
-                </div>
-              </button>
+  return (
+    <div className="h-full overflow-y-auto p-4">
+      <h2 className="text-lg font-semibold text-gray-700 mb-4 flex items-center gap-2">
+        <Rocket className="w-5 h-5" />
+        Asistente de Creación Guiada
+      </h2>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Tipo de Proyecto
+          </label>
+          <select
+            value={selectedTemplate}
+            onChange={(e) => setSelectedTemplate(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Selecciona un tipo...</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
             ))}
-          </div>
+          </select>
         </div>
-      </div>
-    )
-  }
 
-  if (step === 1 && questions.length > 0) {
-    return (
-      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
-          <h2 className="text-2xl font-bold text-white mb-6">Configurá tu proyecto</h2>
-          <div className="space-y-4">
-            {questions.map(q => (
+        {questions.length > 0 && (
+          <div className="space-y-3">
+            <h3 className="font-medium text-gray-700">Responde las preguntas:</h3>
+            {questions.map((q) => (
               <div key={q.id}>
-                <label className="block text-sm font-medium text-gray-300 mb-2">{q.question}</label>
-                {q.type === 'text' && (
-                  <input type="text" defaultValue={q.default || ''} onChange={e => setAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-gray-200" />
-                )}
-                {q.type === 'boolean' && (
-                  <select defaultValue={q.default ? 'true' : 'false'} onChange={e => setAnswers(prev => ({ ...prev, [q.id]: e.target.value === 'true' }))}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-gray-200">
-                    <option value="true">Sí</option>
-                    <option value="false">No</option>
-                  </select>
-                )}
-                {q.type === 'choice' && (
-                  <select defaultValue={q.default || q.options[0]} onChange={e => setAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-gray-200">
-                    {q.options.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                )}
+                <label className="block text-sm text-gray-600 mb-1">{q.question}</label>
+                <input
+                  type="text"
+                  value={answers[q.id] || ''}
+                  onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder={q.placeholder || 'Escribe tu respuesta...'}
+                />
               </div>
             ))}
-          </div>
-          <div className="flex gap-4 mt-6">
-            <button onClick={() => setStep(0)} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">Volver</button>
-            <button onClick={handlePreview} disabled={loading}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium disabled:opacity-50">
-              {loading ? 'Generando vista previa...' : 'Vista previa del prompt'}
+            <button
+              onClick={handleCreate}
+              disabled={creating || Object.keys(answers).length !== questions.length}
+              className="w-full px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:bg-gray-400 transition-colors flex items-center justify-center gap-2"
+            >
+              {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+              {creating ? 'Creando...' : 'Crear Proyecto'}
             </button>
           </div>
-        </div>
+        )}
       </div>
-    )
-  }
+    </div>
+  );
+};
 
-  if (step === 2 && previewPrompt) {
-    return (
-      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
-          <h2 className="text-2xl font-bold text-white mb-4">Vista previa del prompt</h2>
-          <p className="text-sm text-gray-400 mb-4">Este es el prompt que se enviará a los agentes. Podés editarlo antes de confirmar.</p>
-          <textarea value={previewPrompt} onChange={e => setPreviewPrompt(e.target.value)}
-            className="w-full h-48 bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-gray-200 font-mono text-sm resize-none" />
-          <div className="flex gap-4 mt-6">
-            <button onClick={() => setStep(1)} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">Volver</button>
-            <button onClick={handleCreate} disabled={loading}
-              className="bg-gradient-to-r from-green-600 to-emerald-500 text-white px-6 py-2 rounded-lg font-medium disabled:opacity-50">
-              {loading ? 'Creando...' : 'Confirmar y crear proyecto'}
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (step === 3 && result) {
-    return (
-      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 w-full max-w-md text-center">
-          {result.error ? (
-            <div>
-              <p className="text-red-400 text-lg">{result.error}</p>
-              <button onClick={onClose} className="mt-4 bg-gray-700 text-white px-4 py-2 rounded-lg">Cerrar</button>
-            </div>
-          ) : (
-            <div>
-              <p className="text-green-400 text-lg font-bold">✅ ¡Proyecto creado!</p>
-              <p className="text-gray-400 mt-2">ID: {result.project_id}</p>
-              <div className="flex gap-4 justify-center mt-6">
-                <button onClick={onClose} className="bg-gray-700 text-white px-4 py-2 rounded-lg">Cerrar</button>
-                <button onClick={() => { if (onProjectCreated) onProjectCreated(result.project_id); onClose(); }}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">Abrir proyecto</button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  return null
-}
+export default GuidedProjectCreator;

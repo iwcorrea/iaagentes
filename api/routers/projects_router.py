@@ -1,173 +1,133 @@
-from fastapi import APIRouter, Query, HTTPException, Request, Body
-import subprocess
-import sys
-import json as json_module
-from pathlib import Path
-from typing import Optional
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
+from typing import List, Optional
+import os
+import json
+from datetime import datetime
 
 router = APIRouter()
 
-from core.project_manager import ProjectManager
-from core.executor import ProjectExecutor
+class ProjectCreate(BaseModel):
+    prompt: str
 
-project_manager = ProjectManager()
+class ProjectResponse(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    path: str
 
-@router.get("/projects")
-def list_projects():
-    project_ids = project_manager.list_projects()
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    message: str
+
+class ChatResponse(BaseModel):
+    message: ChatMessage
+
+PROJECTS_ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "projects")
+os.makedirs(PROJECTS_ROOT, exist_ok=True)
+
+@router.get("/", response_model=List[ProjectResponse])
+async def list_projects():
     projects = []
-    for pid in project_ids:
-        proj_path = project_manager.get_project_path(pid)
-        name = pid
-        if proj_path:
-            meta_file = proj_path / "project.json"
-            if meta_file.exists():
-                try:
-                    meta = json_module.loads(meta_file.read_text(encoding='utf-8'))
-                    if "name" in meta:
-                        name = meta["name"]
-                except:
-                    pass
-        projects.append({"id": pid, "name": name})
-    return {"projects": projects}
+    if os.path.exists(PROJECTS_ROOT):
+        for item in os.listdir(PROJECTS_ROOT):
+            project_path = os.path.join(PROJECTS_ROOT, item)
+            if os.path.isdir(project_path):
+                meta_path = os.path.join(project_path, "project.json")
+                if os.path.exists(meta_path):
+                    try:
+                        with open(meta_path, "r", encoding="utf-8") as f:
+                            meta = json.load(f)
+                            projects.append(ProjectResponse(
+                                id=meta.get("id", item),
+                                name=meta.get("name", item),
+                                created_at=meta.get("created_at", datetime.now().isoformat()),
+                                path=project_path
+                            ))
+                    except:
+                        projects.append(ProjectResponse(
+                            id=item,
+                            name=item,
+                            created_at=datetime.now().isoformat(),
+                            path=project_path
+                        ))
+                else:
+                    projects.append(ProjectResponse(
+                        id=item,
+                        name=item,
+                        created_at=datetime.now().isoformat(),
+                        path=project_path
+                    ))
+    return projects
 
-@router.get("/projects/{project_id}/files")
-def list_project_files(project_id: str):
-    project_path = project_manager.get_project_path(project_id)
-    if not project_path:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-    files = [str(f.relative_to(project_path)) for f in project_path.rglob("*") if f.is_file()]
-    return {"project_id": project_id, "files": sorted(files)}
-
-@router.get("/projects/{project_id}/file")
-def get_project_file(project_id: str, path: str = Query(...)):
-    project_path = project_manager.get_project_path(project_id)
-    if not project_path:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-    file_path = project_path / path
-    if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(status_code=404, detail="Archivo no encontrado")
-    return {"filename": path, "content": file_path.read_text(encoding='utf-8')}
-
-@router.put("/projects/{project_id}/file")
-def update_project_file(project_id: str, path: str = Query(...), content: str = Body(..., embed=True)):
-    project_path = project_manager.get_project_path(project_id)
-    if not project_path:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-    file_path = project_path / path
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Archivo no encontrado")
-    file_path.write_text(content, encoding='utf-8')
-    return {"status": "ok", "message": "Archivo actualizado"}
-
-@router.post("/projects/{project_id}/execute")
-def execute_project_endpoint(project_id: str):
-    project_path = project_manager.get_project_path(project_id)
-    if not project_path:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-
-    result = {
-        "success": False,
-        "stdout": "",
-        "stderr": "",
-        "execution_type": "desconocido",
-        "url": None,
-        "dependencies_installed": False,
-        "steps": []
+@router.post("/", response_model=ProjectResponse)
+async def create_project(project: ProjectCreate):
+    import uuid
+    project_id = str(uuid.uuid4())[:8]
+    project_name = project.prompt[:30].replace(" ", "_")
+    project_path = os.path.join(PROJECTS_ROOT, project_name)
+    os.makedirs(project_path, exist_ok=True)
+    meta = {
+        "id": project_id,
+        "name": project_name,
+        "prompt": project.prompt,
+        "created_at": datetime.now().isoformat(),
+        "path": project_path
     }
+    with open(os.path.join(project_path, "project.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    return ProjectResponse(
+        id=project_id,
+        name=project_name,
+        created_at=meta["created_at"],
+        path=project_path
+    )
 
-    req_file = project_path / "backend" / "requirements.txt"
-    if not req_file.exists():
-        req_file = project_path / "requirements.txt"
-
-    if req_file.exists():
-        result["steps"].append("📦 Instalando dependencias...")
-        try:
-            install_result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
-                capture_output=True, text=True, timeout=60
-            )
-            if install_result.returncode == 0:
-                result["dependencies_installed"] = True
-                result["steps"].append("✅ Dependencias instaladas correctamente.")
-            else:
-                result["stderr"] = install_result.stderr
-                result["steps"].append(f"❌ Error al instalar dependencias:\n{install_result.stderr}")
-                return result
-        except subprocess.TimeoutExpired:
-            result["stderr"] = "Timeout instalando dependencias."
-            result["steps"].append("❌ Timeout instalando dependencias.")
-            return result
-    else:
-        result["steps"].append("⚠️ No se encontró requirements.txt. Omitiendo instalación de dependencias.")
-
-    executor = ProjectExecutor(str(project_path))
-    exec_result = executor.execute_project()
-
-    result["success"] = exec_result.get("success", False)
-    result["stdout"] = exec_result.get("stdout", "")
-    result["stderr"] = exec_result.get("stderr", "")
-    result["execution_type"] = exec_result.get("execution_type", "desconocido")
-
-    if result["success"]:
-        result["url"] = "http://localhost:8001"
-        result["steps"].append(f"✅ Proyecto iniciado en {result['url']}")
-        result["steps"].append("🔗 Abrí la pestaña 'Vista previa' para verlo.")
-    else:
-        result["steps"].append(f"❌ Falló la ejecución:\n{result['stderr'] or result['stdout']}")
-
-    return result
-
-@router.get("/projects/{project_id}/chat")
-def get_project_chat(project_id: str):
-    project_path = project_manager.get_project_path(project_id)
+@router.get("/{project_id}/chat", response_model=List[ChatMessage])
+async def get_chat_history(project_id: str):
+    project_path = None
+    if os.path.exists(PROJECTS_ROOT):
+        for item in os.listdir(PROJECTS_ROOT):
+            meta_path = os.path.join(PROJECTS_ROOT, item, "project.json")
+            if os.path.exists(meta_path):
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                    if meta.get("id") == project_id:
+                        project_path = os.path.join(PROJECTS_ROOT, item)
+                        break
     if not project_path:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-    chat_path = project_path / "chat.json"
-    if chat_path.exists():
-        return json_module.loads(chat_path.read_text(encoding='utf-8'))
-    return {"messages": []}
+    chat_path = os.path.join(project_path, "chat.json")
+    if os.path.exists(chat_path):
+        with open(chat_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
 
-@router.post("/projects/{project_id}/chat")
-async def save_project_chat(project_id: str, request: Request):
-    project_path = project_manager.get_project_path(project_id)
+@router.post("/{project_id}/chat", response_model=ChatResponse)
+async def send_message(project_id: str, request: ChatRequest):
+    project_path = None
+    if os.path.exists(PROJECTS_ROOT):
+        for item in os.listdir(PROJECTS_ROOT):
+            meta_path = os.path.join(PROJECTS_ROOT, item, "project.json")
+            if os.path.exists(meta_path):
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                    if meta.get("id") == project_id:
+                        project_path = os.path.join(PROJECTS_ROOT, item)
+                        break
     if not project_path:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-    chat_path = project_path / "chat.json"
-    body = await request.json()
-    chat_path.write_text(json_module.dumps(body, indent=2), encoding='utf-8')
-    return {"status": "ok"}
-
-@router.put("/projects/{project_id}/name")
-def update_project_name(project_id: str, name: str = Body(..., embed=True)):
-    project_path = project_manager.get_project_path(project_id)
-    if not project_path:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-    meta_path = project_path / "project.json"
-    meta = {}
-    if meta_path.exists():
-        meta = json_module.loads(meta_path.read_text(encoding='utf-8'))
-    meta["name"] = name
-    meta_path.write_text(json_module.dumps(meta, indent=2), encoding='utf-8')
-    return {"status": "ok", "name": name}
-
-@router.get("/projects/{project_id}/name")
-def get_project_name(project_id: str):
-    project_path = project_manager.get_project_path(project_id)
-    if not project_path:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-    meta_path = project_path / "project.json"
-    if meta_path.exists():
-        meta = json_module.loads(meta_path.read_text(encoding='utf-8'))
-        return {"name": meta.get("name", project_id)}
-    return {"name": project_id}
-
-@router.get("/projects/{project_id}/audit")
-def audit_project(project_id: str):
-    project_path = project_manager.get_project_path(project_id)
-    if not project_path:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
-    from core.project_auditor import ProjectAuditor
-    auditor = ProjectAuditor(str(project_path))
-    issues = auditor.audit()
-    return {"project_id": project_id, "issues": issues, "status": "ok" if not issues else "attention"}
+    chat_path = os.path.join(project_path, "chat.json")
+    messages = []
+    if os.path.exists(chat_path):
+        with open(chat_path, "r", encoding="utf-8") as f:
+            messages = json.load(f)
+    messages.append({"role": "user", "content": request.message})
+    assistant_response = f"Recibido: '{request.message}'. Los agentes están procesando tu solicitud."
+    messages.append({"role": "assistant", "content": assistant_response})
+    with open(chat_path, "w", encoding="utf-8") as f:
+        json.dump(messages, f, indent=2, ensure_ascii=False)
+    return ChatResponse(message=ChatMessage(role="assistant", content=assistant_response))

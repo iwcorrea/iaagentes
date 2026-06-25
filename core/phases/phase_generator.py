@@ -1,6 +1,8 @@
 """
 Fase 1: Generación de código.
 Utiliza ProjectMemory para evitar alucinaciones y duplicados.
+Extracción robusta de archivos desde respuestas JSON del LLM,
+incluyendo manejo de backticks en lugar de comillas.
 """
 import json
 import re
@@ -19,7 +21,6 @@ class PhaseGenerator:
         self.memory = memory
 
     def execute(self, user_prompt: str) -> Dict[str, Any]:
-        # Construir contexto a partir de la memoria
         context = self.memory.get_manifest_summary()
         design = self.memory.get_design_context()
         full_context = f"{context}\n{design}" if design else context
@@ -67,7 +68,6 @@ class PhaseGenerator:
         plan = plan_data.get("plan", [])
         design_notes = plan_data.get("design_notes", [])
 
-        # Guardar decisiones de diseño en memoria
         for note in design_notes:
             self.memory.add_design_decision(note)
 
@@ -75,7 +75,6 @@ class PhaseGenerator:
             print("❌ No se pudo extraer el plan. Abortando.")
             return {"files": {}}
 
-        # Filtrar archivos que ya existen (evitar alucinaciones)
         new_files = []
         for f in plan:
             if not self.memory.file_exists(f["path"]):
@@ -98,24 +97,25 @@ class PhaseGenerator:
             )
         )
 
+        frontend_agent = self.agent_cache.get_or_create(
+            "frontend",
+            lambda: Agent(
+                role="Desarrollador Frontend React",
+                goal="Generar componentes React con Tailwind CSS.",
+                backstory="Eres un desarrollador frontend experto en React y Tailwind.",
+                verbose=True,
+                allow_delegation=False,
+            )
+        )
+
         backend_files = [f for f in new_files if f["path"].endswith(".py") or f["path"].endswith(".txt")]
-        frontend_files = [f for f in new_files if f["path"].endswith((".jsx", ".tsx", ".css", ".json"))]
+        frontend_files = [f for f in new_files if f["path"].endswith((".jsx", ".tsx", ".css", ".json", ".js"))]
 
         if backend_files:
             code = self._generate_code_for_files(backend_files, backend_agent, "Backend")
             files.update(code)
 
         if frontend_files:
-            frontend_agent = self.agent_cache.get_or_create(
-                "frontend",
-                lambda: Agent(
-                    role="Desarrollador Frontend React",
-                    goal="Generar componentes React con Tailwind CSS.",
-                    backstory="Eres un desarrollador frontend experto en React y Tailwind.",
-                    verbose=True,
-                    allow_delegation=False,
-                )
-            )
             code = self._generate_code_for_files(frontend_files, frontend_agent, "Frontend")
             files.update(code)
 
@@ -174,22 +174,46 @@ class PhaseGenerator:
         return {}
 
     def _robust_extract_files(self, raw_text: str) -> Dict[str, str]:
+        """
+        Extrae un mapeo ruta -> código de la salida del agente.
+        Maneja JSON puro, bloques de código markdown, backticks en lugar de comillas,
+        y patrones ruta:::código.
+        """
         raw_text = raw_text.strip()
-        try:
-            result = json.loads(raw_text)
-            if isinstance(result, dict):
-                if any('/' in k or '\\' in k for k in result.keys()):
-                    return result
-        except:
-            pass
-        match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
-        if match:
-            try:
-                result = json.loads(match.group(1))
-                if isinstance(result, dict):
-                    return result
-            except:
-                pass
+
+        # 1. Intentar JSON puro
+        files = self._try_parse_json(raw_text)
+        if files:
+            return files
+
+        # 2. Extraer bloque ```json ... ```
+        block_match = re.search(r'```json\s*\n(.*?)\n```', raw_text, re.DOTALL)
+        if block_match:
+            files = self._try_parse_json(block_match.group(1))
+            if files:
+                return files
+
+        # 3. Extraer cualquier bloque ``` ... ```
+        any_block = re.search(r'```\s*\n(.*?)\n```', raw_text, re.DOTALL)
+        if any_block:
+            files = self._try_parse_json(any_block.group(1))
+            if files:
+                return files
+
+        # 4. Buscar el objeto JSON más largo
+        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if json_match:
+            files = self._try_parse_json(json_match.group())
+            if files:
+                return files
+
+        # 5. Sanitizar backticks y reintentar
+        sanitized = raw_text.replace('`', '"')
+        files = self._try_parse_json(sanitized)
+        if files:
+            return files
+
+        # 6. Patrones ruta:::código
         files = {}
         pattern = re.findall(
             r'["\']?([\w\-./\\]+\.\w+)["\']?\s*:::\s*(.*?)(?=\n\S+:::\s|\Z)',
@@ -197,4 +221,17 @@ class PhaseGenerator:
         )
         for path, code in pattern:
             files[path.strip()] = code.strip()
+
         return files
+
+    def _try_parse_json(self, text: str) -> Dict[str, str]:
+        """Intenta cargar un string como JSON y devuelve un dict si es válido y contiene rutas de archivo."""
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                # Verificar si las claves parecen rutas de archivo
+                if any('/' in k or '\\' in k for k in data.keys()):
+                    return data
+        except:
+            pass
+        return {}

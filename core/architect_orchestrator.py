@@ -1,146 +1,240 @@
-import sys
-import ctypes
+"""
+Orquestador principal del ecosistema.
+Administra las fases de generación de un proyecto utilizando CrewAI.
+Integra persistencia del estado del proyecto (ProjectState) para
+reanudación, ahorro de tokens y prevención de alucinaciones.
+Ahora con extracción robusta de código y guardado real de archivos
+en todas las fases.
+"""
 import os
 from pathlib import Path
+from typing import Dict, Any, Optional
 from datetime import datetime
 
-if sys.platform == 'win32':
-    ES_CONTINUOUS = 0x80000000
-    ES_SYSTEM_REQUIRED = 0x00000001
-    def prevent_sleep():
-        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
-    def allow_sleep():
-        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
-else:
-    def prevent_sleep(): pass
-    def allow_sleep(): pass
-
-ROOT_DIR = Path(__file__).parent.parent.resolve()
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
-from core.architecture_memory import ArchitectureMemory
-from core.global_context import GlobalContext
-from core.executor import execute_plan
-from core.refactor_engine import RefactorEngine
-from core.agents.registry import AgentRegistry
-from core.simulated_agents import CodeAgent
-from core.improvement_queue import ImprovementQueue
-from core.meta_agent import MetaAgent
-from core.prompt_integrity import PromptIntegrity
-from core.project_context import ProjectContext
-from core.agent_status import set_all_status, set_progress
-
+from core.project_state import ProjectState
 from core.phases.phase_generator import PhaseGenerator
 from core.phases.phase_auditor import PhaseAuditor
 from core.phases.phase_dependencies import PhaseDependencies
 from core.phases.phase_deploy import PhaseDeploy
 from core.phases.phase_repair import PhaseRepair
-
-CREWAI_AVAILABLE = True
+from core.agent_cache import AgentCache
+from core.project_context import ProjectContext
 
 
 class AutonomousArchitectOrchestrator:
-    def __init__(self, workspace_path="workspace"):
-        self.workspace_path = workspace_path
-        self.memory = ArchitectureMemory(root_path=str(Path(workspace_path) / "backend"))
-        self.context = GlobalContext()
-        self.refactor = RefactorEngine(self.memory)
-        self.agent_registry = AgentRegistry()
-        self.agent_registry.register(CodeAgent(memory=self.memory))
-        self.crew_available = CREWAI_AVAILABLE
-        self.improvement_queue = ImprovementQueue()
-        self.generated_files = []
-        self.rate_limit_hits = 0
+    """
+    Orquestador autónomo que gestiona las fases de un proyecto generado.
+    Utiliza AgentCache para reutilizar agentes y ProjectState para
+    persistir el progreso y facilitar la reanudación.
+    """
+
+    def __init__(self, workspace_base: str = "generated_projects", workspace_path: str = None):
+        if workspace_path:
+            self.workspace_base = Path(workspace_path)
+        else:
+            self.workspace_base = Path(workspace_base)
+        self.workspace_base.mkdir(exist_ok=True)
+        self.agent_cache = AgentCache()
         self.project_context = ProjectContext()
 
-    def _get_agents(self):
-        from core.agent_cache import get_agents
-        current_model = os.getenv("CURRENT_BRAIN_MODEL", "local-coder")
-        return get_agents(current_model)
+    def orchestrate_project(
+        self,
+        user_prompt: str,
+        project_name: str = None,
+        model: str = None,
+        is_modification: bool = False,
+        scope: str = "all",
+        mode: str = "full",
+        turbo: bool = False
+    ) -> str:
+        """
+        Ejecuta el pipeline completo de generación del proyecto.
+        Si una fase falla, guarda el estado y devuelve un mensaje
+        para que el usuario pueda reanudar más tarde.
+        """
+        if not project_name:
+            project_name = f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        workspace_path = self.workspace_base / project_name
+        workspace_path.mkdir(exist_ok=True)
 
-    def orchestrate_project(self, user_prompt: str, is_modification: bool = False,
-                            scope: str = "all", mode: str = "full", turbo: bool = False) -> str:
-        prevent_sleep()
-        self.generated_files = []
-        self.rate_limit_hits = 0
-        try:
-            validator = PromptIntegrity()
-            validation = validator.validate(user_prompt)
-            if not validation["valid"]:
-                user_prompt = validator.build_improved_prompt(user_prompt)
-            set_progress(5)
+        state = ProjectState(str(workspace_path))
+        state.set_last_prompt(user_prompt)
+        state.set_model_used(model or os.getenv("CURRENT_BRAIN_MODEL", "unknown"))
 
-            final_project_id = Path(self.workspace_path).name
+        resume_phase = None
+        if state.is_phase_completed("generation"):
+            resume_phase = "generation"
+        if state.is_phase_completed("audit"):
+            resume_phase = "audit"
+        if state.is_phase_completed("dependencies"):
+            resume_phase = "dependencies"
+        if state.is_phase_completed("tests"):
+            resume_phase = "tests"
+        if state.is_phase_completed("deploy"):
+            resume_phase = "deploy"
 
-            gen = PhaseGenerator(self)
-            crew_code, qa_report = gen.run(user_prompt, is_modification, scope, mode, turbo)
+        print(f"📂 Proyecto: {project_name}")
+        if resume_phase:
+            print(f"⏯️  Reanudando desde fase: {resume_phase}")
+        else:
+            print("🚀 Iniciando generación completa...")
 
-            project_json = Path(self.workspace_path) / "project.json"
-            if not project_json.exists():
-                import json
-                project_json.write_text(json.dumps({
-                    "name": final_project_id,
-                    "created": datetime.now().isoformat()
-                }, indent=2), encoding='utf-8')
-
-            aud = PhaseAuditor(self)
-            aud.run(turbo)
-
-            dep = PhaseDependencies(self)
-            dep.run()
-
-            deploy = PhaseDeploy(self)
-            deploy.run(turbo)
-
-            rep = PhaseRepair(self)
-            rep.run(crew_code, qa_report, turbo)
-
-            self.memory.scan_project()
-            self.memory.fix_imports_globally()
-            self.refactor.analyze_and_fix(extended=True)
-
-            from core.executor import ProjectExecutor
-            executor = ProjectExecutor(str(self.workspace_path), memory=self.memory)
-            execution_result = executor.execute_project()
+        # -----------------------------------------------------------------
+        # Fase 1: Generación
+        # -----------------------------------------------------------------
+        if not resume_phase or resume_phase == "generation":
             try:
-                MetaAgent(memory=self.memory, queue=self.improvement_queue).analyze_and_propose(project_root=".")
-            except:
-                pass
+                print("\n📝 FASE 1: Generación de código")
+                manifest_context = state.get_manifest_as_context()
+                gen_phase = PhaseGenerator(workspace_path, self.agent_cache)
+                result = gen_phase.execute(user_prompt, manifest_context)
 
-            from core.learning_tracker import LearningTracker
-            tracker = LearningTracker()
-            tracker.add_project(final_project_id, {
-                "files": self.generated_files,
-                "errors": [],
-                "model_used": os.getenv("CURRENT_BRAIN_MODEL", "unknown"),
-            })
+                files = result.get("files", {})
+                if not files:
+                    raise ValueError("El agente no generó ningún archivo válido.")
 
-            success = execution_result.get('success', False)
-            status = "✅ SALUDABLE" if success else "⚠️ REQUIERE ATENCIÓN"
-            report = f"🧠 PROYECTO {final_project_id}\nESTADO: {status}\nQA: {qa_report[:200] if not turbo else 'Turbo: QA omitido'}"
-            if self.generated_files:
-                report += f"\n📁 Archivos generados: {len(self.generated_files)}"
-            set_all_status("done", "Proyecto completado")
-            set_progress(100)
-            return report
-        finally:
-            allow_sleep()
+                for file_path, content in files.items():
+                    self._save_incremental(workspace_path, file_path, content)
+                    description = self._guess_file_description(file_path)
+                    state.add_file_manifest_entry(file_path, description)
 
-    def _load_project_context_scoped(self, scope: str, mode: str) -> str:
-        project_path = Path(self.workspace_path)
-        if not project_path.exists():
-            return ""
-        lines = []
-        for f in project_path.rglob("*"):
-            if f.is_file() and f.name not in ["project_context.json", "chat.json", "project.json"]:
-                rel = str(f.relative_to(project_path))
-                if scope == "backend" and not rel.startswith("backend"): continue
-                if scope == "frontend" and not rel.startswith("frontend"): continue
-                if mode == "light":
-                    lines.append(f"- {rel}")
-                else:
-                    content = self.project_context.read_file(project_path, rel)
-                    if content:
-                        lines.append(f"=== {rel} ===\n{content[:1000]}")
-        return "\n".join(lines)
+                state.mark_phase_completed("generation")
+                print(f"✅ Fase 1 completada ({len(files)} archivos)")
+            except Exception as e:
+                error_msg = f"Fase 1 (generación) falló: {str(e)}"
+                state.add_error(error_msg)
+                return self._build_resume_message(workspace_path, "generation", str(e))
+
+        # -----------------------------------------------------------------
+        # Fase 2: Auditoría
+        # -----------------------------------------------------------------
+        if not resume_phase or resume_phase in ("generation", "audit"):
+            try:
+                print("\n🔍 FASE 2: Auditoría y revisión de código")
+                manifest_context = state.get_manifest_as_context()
+                audit_phase = PhaseAuditor(workspace_path, self.agent_cache)
+                audit_phase.execute(manifest_context)
+                state.mark_phase_completed("audit")
+                print("✅ Fase 2 completada")
+            except Exception as e:
+                error_msg = f"Fase 2 (auditoría) falló: {str(e)}"
+                state.add_error(error_msg)
+                return self._build_resume_message(workspace_path, "audit", str(e))
+
+        # -----------------------------------------------------------------
+        # Fase 3: Dependencias
+        # -----------------------------------------------------------------
+        if not resume_phase or resume_phase in ("generation", "audit", "dependencies"):
+            try:
+                print("\n📦 FASE 3: Instalación de dependencias")
+                manifest_context = state.get_manifest_as_context()
+                dep_phase = PhaseDependencies(workspace_path, self.agent_cache)
+                dep_phase.execute(manifest_context)
+                state.set_dependencies_cached(True)
+                state.mark_phase_completed("dependencies")
+                print("✅ Fase 3 completada")
+            except Exception as e:
+                error_msg = f"Fase 3 (dependencias) falló: {str(e)}"
+                state.add_error(error_msg)
+                return self._build_resume_message(workspace_path, "dependencies", str(e))
+
+        # -----------------------------------------------------------------
+        # Fase 4: Tests
+        # -----------------------------------------------------------------
+        if not resume_phase or resume_phase in ("generation", "audit", "dependencies", "tests"):
+            try:
+                print("\n🧪 FASE 4: Generación de tests")
+                manifest_context = state.get_manifest_as_context()
+                deploy_phase = PhaseDeploy(workspace_path, self.agent_cache)
+                result = deploy_phase.execute(manifest_context, stage="tests")
+
+                files = result.get("files", {})
+                for file_path, content in files.items():
+                    self._save_incremental(workspace_path, file_path, content)
+                    state.add_file_manifest_entry(file_path, "Test unitario")
+
+                state.set_tests_generated(True)
+                state.mark_phase_completed("tests")
+                print(f"✅ Fase 4 completada ({len(files)} archivos de tests)")
+            except Exception as e:
+                error_msg = f"Fase 4 (tests) falló: {str(e)}"
+                state.add_error(error_msg)
+                return self._build_resume_message(workspace_path, "tests", str(e))
+
+        # -----------------------------------------------------------------
+        # Fase 5: Despliegue
+        # -----------------------------------------------------------------
+        if not resume_phase or resume_phase in ("generation", "audit", "dependencies", "tests", "deploy"):
+            try:
+                print("\n🚀 FASE 5: Despliegue y documentación")
+                manifest_context = state.get_manifest_as_context()
+                deploy_phase = PhaseDeploy(workspace_path, self.agent_cache)
+                result = deploy_phase.execute(manifest_context, stage="deploy")
+
+                files = result.get("files", {})
+                for file_path, content in files.items():
+                    self._save_incremental(workspace_path, file_path, content)
+                    state.add_file_manifest_entry(file_path, "Infraestructura / docs")
+
+                state.set_deploy_generated(True)
+                state.mark_phase_completed("deploy")
+                print(f"✅ Fase 5 completada ({len(files)} archivos de despliegue)")
+            except Exception as e:
+                error_msg = f"Fase 5 (despliegue) falló: {str(e)}"
+                state.add_error(error_msg)
+                return self._build_resume_message(workspace_path, "deploy", str(e))
+
+        # -----------------------------------------------------------------
+        # Resumen final exitoso
+        # -----------------------------------------------------------------
+        final_summary = state.get_summary()
+        summary_msg = (
+            f"\n🎉 Proyecto completado. Archivos generados: {final_summary['files_generated']}\n"
+            f"📂 Ubicación: {workspace_path}\n"
+            f"📋 Fases completadas: {final_summary['phases_completed']}\n"
+            f"⚠️ Errores: {final_summary['errors']}\n"
+        )
+        print(summary_msg)
+        return summary_msg
+
+    def _save_incremental(self, workspace: Path, file_path: str, content: str):
+        full_path = workspace / file_path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(content, encoding='utf-8')
+
+    def _guess_file_description(self, file_path: str) -> str:
+        path_lower = file_path.lower()
+        if "main.py" in path_lower:
+            return "Punto de entrada de la aplicación"
+        elif "database" in path_lower:
+            return "Configuración de la base de datos"
+        elif "models/" in path_lower:
+            return f"Modelo de datos: {Path(file_path).stem}"
+        elif "schemas/" in path_lower:
+            return f"Esquema Pydantic: {Path(file_path).stem}"
+        elif "routers/" in path_lower or "routes/" in path_lower:
+            return f"Router de API: {Path(file_path).stem}"
+        elif "requirements.txt" in path_lower:
+            return "Dependencias del proyecto"
+        elif "dockerfile" in path_lower:
+            return "Configuración de Docker"
+        elif ".env" in path_lower:
+            return "Variables de entorno"
+        elif "readme" in path_lower:
+            return "Documentación del proyecto"
+        elif "test_" in path_lower:
+            return f"Pruebas unitarias: {Path(file_path).stem}"
+        elif file_path.endswith(".jsx") or file_path.endswith(".tsx"):
+            return f"Componente React: {Path(file_path).stem}"
+        elif file_path.endswith(".css"):
+            return f"Estilos: {Path(file_path).stem}"
+        return "Archivo de código"
+
+    def _build_resume_message(self, workspace_path: Path, failed_phase: str, error_detail: str) -> str:
+        return (
+            f"⛔ La generación se detuvo en la fase '{failed_phase}'.\n\n"
+            f"📋 Error: {error_detail}\n\n"
+            f"📁 Proyecto guardado en: {workspace_path}\n"
+            f"🔄 Podés reanudar más tarde enviando el mismo prompt (se continuará desde esta fase).\n"
+            f"💡 Si el error es por rate‑limit, esperá a que se renueven los tokens gratuitos."
+        )

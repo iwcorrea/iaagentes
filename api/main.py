@@ -11,6 +11,7 @@ import subprocess
 import sys
 import json as json_module
 import shutil
+import requests
 from typing import Optional
 from pathlib import Path
 
@@ -123,6 +124,36 @@ def chat_completions(
         }
         actual_model = model_map.get(brain_model, "local-coder")
         os.environ["CURRENT_BRAIN_MODEL"] = actual_model
+
+        # 🔧 Configurar variables de entorno para CrewAI según el modelo
+        if actual_model == "local-coder":
+            # Verificar que Ollama esté vivo (si no, devolver mensaje claro)
+            try:
+                r = requests.get("http://localhost:11434", timeout=3)
+                if r.status_code != 200:
+                    raise ConnectionError("Ollama no respondió correctamente")
+            except Exception as e:
+                error_msg = (
+                    "❌ Modelo local no disponible.\n\n"
+                    "🔍 No se pudo conectar a Ollama en http://localhost:11434\n"
+                    "🦙 Iniciá Ollama con 'ollama serve' o ejecutá 'start.ps1' respondiendo 's'.\n"
+                    "📦 Luego reenviá el mismo prompt para continuar."
+                )
+                return {
+                    "id": "chatcmpl-error",
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": error_msg}, "finish_reason": "stop"}]
+                }
+
+            # Configurar para Ollama directo
+            os.environ["OPENAI_API_BASE"] = "http://localhost:11434"
+            os.environ["OPENAI_MODEL_NAME"] = "ollama/qwen2.5-coder:1.5b"
+            os.environ["LITELLM_TIMEOUT"] = "60"   # 1 minuto máximo
+        else:
+            # Usar proxy LiteLLM (OpenRouter y fallbacks)
+            os.environ["OPENAI_API_BASE"] = "http://localhost:4000"
+            os.environ["OPENAI_MODEL_NAME"] = actual_model  # cloud-coder o hibrido-coder
+            os.environ["LITELLM_TIMEOUT"] = "120"  # 2 minutos para modelos en la nube
+        os.environ["OPENAI_API_KEY"] = "no-key-required"
 
         from core.agent_cache import clear_cache
         clear_cache()

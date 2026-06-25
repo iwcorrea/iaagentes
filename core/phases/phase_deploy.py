@@ -1,66 +1,102 @@
+"""
+Fase 4/5: Tests y Despliegue.
+Genera pruebas unitarias básicas y archivos de infraestructura.
+Ahora persiste los archivos generados en disco.
+"""
 from pathlib import Path
-from core.agent_status import set_agent_status, set_progress
+from typing import Dict, Any
+
+from crewai import Agent, Task, Crew
+from core.agent_cache import AgentCache
+
 
 class PhaseDeploy:
-    def __init__(self, orchestrator):
-        self.orchestrator = orchestrator
+    def __init__(self, workspace_path: Path, agent_cache: AgentCache):
+        self.workspace_path = workspace_path
+        self.agent_cache = agent_cache
 
-    def run(self, turbo):
-        if turbo or self.orchestrator.rate_limit_hits >= 3:
-            return
+    def execute(self, manifest_context: str = "", stage: str = "tests") -> Dict[str, Any]:
+        if stage == "tests":
+            return self._run_tests_phase(manifest_context)
+        else:
+            return self._run_deploy_phase(manifest_context)
 
-        # Tests
-        set_agent_status("Test Generator", "working", "Generando tests unitarios...")
-        try:
-            from agents.test_agent import test_agent
-            self._generate_tests(test_agent)
-        except Exception:
-            pass
-        set_progress(92)
+    def _run_tests_phase(self, manifest_context: str) -> Dict[str, Any]:
+        tester = self.agent_cache.get_or_create(
+            "tester",
+            lambda: Agent(
+                role="Ingeniero de Pruebas",
+                goal="Generar pruebas unitarias con pytest para los módulos backend existentes.",
+                backstory="Eres un QA automation experto en pytest. Creas tests claros y efectivos.",
+                verbose=True,
+                allow_delegation=False,
+            )
+        )
 
-        # Despliegue y docs
-        set_agent_status("Deploy Agent", "working", "Generando despliegue y documentación...")
-        try:
-            from agents.deploy_agent import deploy_agent
-            self._generate_deploy(deploy_agent)
-        except Exception:
-            pass
-        set_progress(96)
+        task = Task(
+            description=(
+                f"Genera pruebas unitarias para los archivos del proyecto.\n{manifest_context}\n\n"
+                "Escribe los tests en archivos separados dentro de 'tests/'. "
+                "Para cada módulo importante, crea al menos un test de funcionamiento básico. "
+                "Responde con un JSON donde cada clave sea la ruta del archivo de test y el valor sea el código."
+            ),
+            agent=tester,
+            expected_output="JSON con archivos de tests (ruta: código)."
+        )
 
-    def _generate_tests(self, agent):
-        backend_path = Path(self.orchestrator.workspace_path) / "backend"
-        if not backend_path.exists():
-            return
-        code_files = []
-        for f in backend_path.rglob("*.py"):
-            if f.name != "__init__.py":
-                try:
-                    code_files.append(f.read_text(encoding='utf-8')[:1500])
-                except:
-                    pass
-        if code_files:
-            prompt = f"Genera tests con pytest:\n{chr(10).join(code_files[:5])}\n\nFormato: ruta:::código."
-            response = agent.kickoff(prompt)
-            if response:
-                code = response.raw if hasattr(response, 'raw') else str(response)
-                if ":::" in code:
-                    from core.executor import execute_plan
-                    execute_plan(code, workspace_base=Path(self.orchestrator.workspace_path))
+        crew = Crew(agents=[tester], tasks=[task], verbose=True)
+        result = crew.kickoff()
 
-    def _generate_deploy(self, agent):
-        backend_path = Path(self.orchestrator.workspace_path) / "backend"
-        info = []
-        if backend_path.exists():
-            for f in backend_path.rglob("*.py"):
-                if f.name != "__init__.py":
-                    try:
-                        info.append(f.read_text(encoding='utf-8')[:1000])
-                    except:
-                        pass
-        prompt = f"Genera Dockerfile, docker-compose.yml, .env.example, README.md:\n{chr(10).join(info[:3])}\n\nFormato: ruta:::código."
-        response = agent.kickoff(prompt)
-        if response:
-            code = response.raw if hasattr(response, 'raw') else str(response)
-            if ":::" in code:
-                from core.executor import execute_plan
-                execute_plan(code, workspace_base=Path(self.orchestrator.workspace_path))
+        # Extraer archivos de tests usando el mismo extractor robusto
+        from core.phases.phase_generator import PhaseGenerator as PG
+        raw = result.raw if hasattr(result, 'raw') else str(result)
+        files = PG._robust_extract_files(PG, raw)  # instancia dummy para usar método estático
+
+        saved = {}
+        for file_path, content in files.items():
+            full_path = self.workspace_path / file_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text(content, encoding='utf-8')
+            saved[file_path] = content
+
+        print(f"🧪 Archivos de tests guardados: {list(saved.keys())}")
+        return {"files": saved}
+
+    def _run_deploy_phase(self, manifest_context: str) -> Dict[str, Any]:
+        deployer = self.agent_cache.get_or_create(
+            "deployer",
+            lambda: Agent(
+                role="Ingeniero DevOps",
+                goal="Crear archivos de despliegue (Dockerfile, docker-compose, .env.example, README).",
+                backstory="Eres un especialista en contenedores y documentación. Tus entregables son impecables.",
+                verbose=True,
+                allow_delegation=False,
+            )
+        )
+
+        task = Task(
+            description=(
+                f"Genera los archivos de infraestructura necesarios.\n{manifest_context}\n\n"
+                "Crea: Dockerfile, docker-compose.yml, .env.example y README.md.\n"
+                "Responde con un JSON donde las claves sean los nombres de archivo y los valores el contenido."
+            ),
+            agent=deployer,
+            expected_output="JSON con archivos de despliegue."
+        )
+
+        crew = Crew(agents=[deployer], tasks=[task], verbose=True)
+        result = crew.kickoff()
+
+        from core.phases.phase_generator import PhaseGenerator as PG
+        raw = result.raw if hasattr(result, 'raw') else str(result)
+        files = PG._robust_extract_files(PG, raw)
+
+        saved = {}
+        for file_path, content in files.items():
+            full_path = self.workspace_path / file_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text(content, encoding='utf-8')
+            saved[file_path] = content
+
+        print(f"🚀 Archivos de despliegue guardados: {list(saved.keys())}")
+        return {"files": saved}

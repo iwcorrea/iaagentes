@@ -1,38 +1,35 @@
 """
-Cacheo de agentes CrewAI.
-Evita recargar los agentes en cada solicitud si el modelo no cambió.
+Caché de agentes CrewAI.
+Proporciona una clase AgentCache y una función clear_cache
+para limpiar la caché global de agentes.
 """
-import sys
-from typing import Optional, Tuple
+from typing import Dict, Callable
+from crewai import Agent
 
-_cached_model: Optional[str] = None
-_cached_agents: Optional[Tuple] = None
 
-def get_agents(model: str):
-    global _cached_model, _cached_agents
-    if _cached_model == model and _cached_agents is not None:
-        return _cached_agents
+class AgentCache:
+    def __init__(self):
+        self._cache: Dict[str, Agent] = {}
 
-    import importlib
-    importlib.reload(sys.modules.get("agents.director_agent", None) or importlib.import_module("agents.director_agent"))
-    importlib.reload(sys.modules.get("agents.backend_agent", None) or importlib.import_module("agents.backend_agent"))
-    importlib.reload(sys.modules.get("agents.frontend_agent", None) or importlib.import_module("agents.frontend_agent"))
-    importlib.reload(sys.modules.get("agents.qa_agent", None) or importlib.import_module("agents.qa_agent"))
-    importlib.reload(sys.modules.get("agents.repair_agent", None) or importlib.import_module("agents.repair_agent"))
-    importlib.reload(sys.modules.get("agents.dependency_agent", None) or importlib.import_module("agents.dependency_agent"))
+    def get_or_create(self, agent_name: str, factory: Callable[[], Agent]) -> Agent:
+        """
+        Devuelve el agente cacheado o lo crea usando la función factory.
+        """
+        if agent_name not in self._cache:
+            self._cache[agent_name] = factory()
+        return self._cache[agent_name]
 
-    from agents.director_agent import director_agent
-    from agents.backend_agent import backend_agent
-    from agents.frontend_agent import frontend_agent
-    from agents.qa_agent import qa_agent
-    from agents.repair_agent import repair_agent
-    from agents.dependency_agent import dependency_agent
+    def clear(self):
+        """Limpia la caché de agentes de esta instancia."""
+        self._cache.clear()
 
-    _cached_model = model
-    _cached_agents = (director_agent, backend_agent, frontend_agent, qa_agent, repair_agent, dependency_agent)
-    return _cached_agents
+
+# ------------------------------------------------------------------
+# Singleton para importaciones directas de clear_cache
+# ------------------------------------------------------------------
+_cache_instance = AgentCache()
+
 
 def clear_cache():
-    global _cached_model, _cached_agents
-    _cached_model = None
-    _cached_agents = None
+    """Limpia la caché global de agentes (singleton)."""
+    _cache_instance.clear()

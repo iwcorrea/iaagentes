@@ -1,17 +1,13 @@
 """
 Orquestador principal del ecosistema.
-Administra las fases de generación de un proyecto utilizando CrewAI.
-Integra persistencia del estado del proyecto (ProjectState) para
-reanudación, ahorro de tokens y prevención de alucinaciones.
-Ahora con extracción robusta de código y guardado real de archivos
-en todas las fases.
+Utiliza ProjectMemory para persistencia, consultas rápidas y anti-alucinación.
 """
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from core.project_state import ProjectState
+from core.project_memory import ProjectMemory
 from core.phases.phase_generator import PhaseGenerator
 from core.phases.phase_auditor import PhaseAuditor
 from core.phases.phase_dependencies import PhaseDependencies
@@ -22,12 +18,6 @@ from core.project_context import ProjectContext
 
 
 class AutonomousArchitectOrchestrator:
-    """
-    Orquestador autónomo que gestiona las fases de un proyecto generado.
-    Utiliza AgentCache para reutilizar agentes y ProjectState para
-    persistir el progreso y facilitar la reanudación.
-    """
-
     def __init__(self, workspace_base: str = "generated_projects", workspace_path: str = None):
         if workspace_path:
             self.workspace_base = Path(workspace_path)
@@ -47,30 +37,25 @@ class AutonomousArchitectOrchestrator:
         mode: str = "full",
         turbo: bool = False
     ) -> str:
-        """
-        Ejecuta el pipeline completo de generación del proyecto.
-        Si una fase falla, guarda el estado y devuelve un mensaje
-        para que el usuario pueda reanudar más tarde.
-        """
         if not project_name:
             project_name = f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         workspace_path = self.workspace_base / project_name
         workspace_path.mkdir(exist_ok=True)
 
-        state = ProjectState(str(workspace_path))
-        state.set_last_prompt(user_prompt)
-        state.set_model_used(model or os.getenv("CURRENT_BRAIN_MODEL", "unknown"))
+        memory = ProjectMemory(str(workspace_path))
+        memory.set_last_prompt(user_prompt)
+        memory.set_model_used(model or os.getenv("CURRENT_BRAIN_MODEL", "unknown"))
 
         resume_phase = None
-        if state.is_phase_completed("generation"):
+        if memory.is_phase_completed("generation"):
             resume_phase = "generation"
-        if state.is_phase_completed("audit"):
+        if memory.is_phase_completed("audit"):
             resume_phase = "audit"
-        if state.is_phase_completed("dependencies"):
+        if memory.is_phase_completed("dependencies"):
             resume_phase = "dependencies"
-        if state.is_phase_completed("tests"):
+        if memory.is_phase_completed("tests"):
             resume_phase = "tests"
-        if state.is_phase_completed("deploy"):
+        if memory.is_phase_completed("deploy"):
             resume_phase = "deploy"
 
         print(f"📂 Proyecto: {project_name}")
@@ -79,15 +64,12 @@ class AutonomousArchitectOrchestrator:
         else:
             print("🚀 Iniciando generación completa...")
 
-        # -----------------------------------------------------------------
         # Fase 1: Generación
-        # -----------------------------------------------------------------
         if not resume_phase or resume_phase == "generation":
             try:
                 print("\n📝 FASE 1: Generación de código")
-                manifest_context = state.get_manifest_as_context()
-                gen_phase = PhaseGenerator(workspace_path, self.agent_cache)
-                result = gen_phase.execute(user_prompt, manifest_context)
+                gen_phase = PhaseGenerator(workspace_path, self.agent_cache, memory)
+                result = gen_phase.execute(user_prompt)
 
                 files = result.get("files", {})
                 if not files:
@@ -96,106 +78,88 @@ class AutonomousArchitectOrchestrator:
                 for file_path, content in files.items():
                     self._save_incremental(workspace_path, file_path, content)
                     description = self._guess_file_description(file_path)
-                    state.add_file_manifest_entry(file_path, description)
+                    memory.add_file(file_path, content, description)
 
-                state.mark_phase_completed("generation")
+                memory.mark_phase_completed("generation")
                 print(f"✅ Fase 1 completada ({len(files)} archivos)")
             except Exception as e:
                 error_msg = f"Fase 1 (generación) falló: {str(e)}"
-                state.add_error(error_msg)
+                memory.add_error(error_msg)
                 return self._build_resume_message(workspace_path, "generation", str(e))
 
-        # -----------------------------------------------------------------
         # Fase 2: Auditoría
-        # -----------------------------------------------------------------
         if not resume_phase or resume_phase in ("generation", "audit"):
             try:
                 print("\n🔍 FASE 2: Auditoría y revisión de código")
-                manifest_context = state.get_manifest_as_context()
-                audit_phase = PhaseAuditor(workspace_path, self.agent_cache)
-                audit_phase.execute(manifest_context)
-                state.mark_phase_completed("audit")
+                audit_phase = PhaseAuditor(workspace_path, self.agent_cache, memory)
+                audit_phase.execute()
+                memory.mark_phase_completed("audit")
                 print("✅ Fase 2 completada")
             except Exception as e:
                 error_msg = f"Fase 2 (auditoría) falló: {str(e)}"
-                state.add_error(error_msg)
+                memory.add_error(error_msg)
                 return self._build_resume_message(workspace_path, "audit", str(e))
 
-        # -----------------------------------------------------------------
         # Fase 3: Dependencias
-        # -----------------------------------------------------------------
         if not resume_phase or resume_phase in ("generation", "audit", "dependencies"):
             try:
                 print("\n📦 FASE 3: Instalación de dependencias")
-                manifest_context = state.get_manifest_as_context()
                 dep_phase = PhaseDependencies(workspace_path, self.agent_cache)
-                dep_phase.execute(manifest_context)
-                state.set_dependencies_cached(True)
-                state.mark_phase_completed("dependencies")
+                dep_phase.execute(memory.get_manifest_summary())
+                memory.set_dependencies_cached(True)
+                memory.mark_phase_completed("dependencies")
                 print("✅ Fase 3 completada")
             except Exception as e:
                 error_msg = f"Fase 3 (dependencias) falló: {str(e)}"
-                state.add_error(error_msg)
+                memory.add_error(error_msg)
                 return self._build_resume_message(workspace_path, "dependencies", str(e))
 
-        # -----------------------------------------------------------------
         # Fase 4: Tests
-        # -----------------------------------------------------------------
         if not resume_phase or resume_phase in ("generation", "audit", "dependencies", "tests"):
             try:
                 print("\n🧪 FASE 4: Generación de tests")
-                manifest_context = state.get_manifest_as_context()
                 deploy_phase = PhaseDeploy(workspace_path, self.agent_cache)
-                result = deploy_phase.execute(manifest_context, stage="tests")
+                result = deploy_phase.execute(memory.get_manifest_summary(), stage="tests")
 
                 files = result.get("files", {})
                 for file_path, content in files.items():
                     self._save_incremental(workspace_path, file_path, content)
-                    state.add_file_manifest_entry(file_path, "Test unitario")
+                    memory.add_file(file_path, content, "Test unitario")
 
-                state.set_tests_generated(True)
-                state.mark_phase_completed("tests")
+                memory.set_tests_generated(True)
+                memory.mark_phase_completed("tests")
                 print(f"✅ Fase 4 completada ({len(files)} archivos de tests)")
             except Exception as e:
                 error_msg = f"Fase 4 (tests) falló: {str(e)}"
-                state.add_error(error_msg)
+                memory.add_error(error_msg)
                 return self._build_resume_message(workspace_path, "tests", str(e))
 
-        # -----------------------------------------------------------------
         # Fase 5: Despliegue
-        # -----------------------------------------------------------------
         if not resume_phase or resume_phase in ("generation", "audit", "dependencies", "tests", "deploy"):
             try:
                 print("\n🚀 FASE 5: Despliegue y documentación")
-                manifest_context = state.get_manifest_as_context()
                 deploy_phase = PhaseDeploy(workspace_path, self.agent_cache)
-                result = deploy_phase.execute(manifest_context, stage="deploy")
+                result = deploy_phase.execute(memory.get_manifest_summary(), stage="deploy")
 
                 files = result.get("files", {})
                 for file_path, content in files.items():
                     self._save_incremental(workspace_path, file_path, content)
-                    state.add_file_manifest_entry(file_path, "Infraestructura / docs")
+                    memory.add_file(file_path, content, "Infraestructura / docs")
 
-                state.set_deploy_generated(True)
-                state.mark_phase_completed("deploy")
+                memory.set_deploy_generated(True)
+                memory.mark_phase_completed("deploy")
                 print(f"✅ Fase 5 completada ({len(files)} archivos de despliegue)")
             except Exception as e:
                 error_msg = f"Fase 5 (despliegue) falló: {str(e)}"
-                state.add_error(error_msg)
+                memory.add_error(error_msg)
                 return self._build_resume_message(workspace_path, "deploy", str(e))
 
-        # -----------------------------------------------------------------
-        # Resumen final exitoso
-        # -----------------------------------------------------------------
-        final_summary = state.get_summary()
-        summary_msg = (
-            f"\n🎉 Proyecto completado. Archivos generados: {final_summary['files_generated']}\n"
+        # Resumen final
+        summary = (
+            f"\n🎉 Proyecto completado. Archivos: {len(memory.to_dict()['files_manifest'])}\n"
             f"📂 Ubicación: {workspace_path}\n"
-            f"📋 Fases completadas: {final_summary['phases_completed']}\n"
-            f"⚠️ Errores: {final_summary['errors']}\n"
         )
-        print(summary_msg)
-        return summary_msg
+        return summary
 
     def _save_incremental(self, workspace: Path, file_path: str, content: str):
         full_path = workspace / file_path

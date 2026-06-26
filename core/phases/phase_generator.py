@@ -1,8 +1,7 @@
 """
 Fase 1: Generación de código.
 Utiliza ProjectMemory para evitar alucinaciones y duplicados.
-Extracción robusta de archivos desde respuestas JSON del LLM,
-incluyendo manejo de backticks en lugar de comillas.
+Extracción robusta de archivos: ahora con extractor de JSON balanceado.
 """
 import json
 import re
@@ -75,10 +74,7 @@ class PhaseGenerator:
             print("❌ No se pudo extraer el plan. Abortando.")
             return {"files": {}}
 
-        new_files = []
-        for f in plan:
-            if not self.memory.file_exists(f["path"]):
-                new_files.append(f)
+        new_files = [f for f in plan if not self.memory.file_exists(f["path"])]
         print(f"📁 Archivos nuevos a generar: {len(new_files)} (ya existían {len(plan) - len(new_files)})")
 
         if not new_files:
@@ -108,16 +104,13 @@ class PhaseGenerator:
             )
         )
 
-        backend_files = [f for f in new_files if f["path"].endswith(".py") or f["path"].endswith(".txt")]
-        frontend_files = [f for f in new_files if f["path"].endswith((".jsx", ".tsx", ".css", ".json", ".js"))]
+        backend_files = [f for f in new_files if f["path"].endswith((".py", ".txt"))]
+        frontend_files = [f for f in new_files if f["path"].endswith((".jsx", ".tsx", ".css", ".json", ".js", ".jsx"))]
 
         if backend_files:
-            code = self._generate_code_for_files(backend_files, backend_agent, "Backend")
-            files.update(code)
-
+            files.update(self._generate_code_for_files(backend_files, backend_agent, "Backend"))
         if frontend_files:
-            code = self._generate_code_for_files(frontend_files, frontend_agent, "Frontend")
-            files.update(code)
+            files.update(self._generate_code_for_files(frontend_files, frontend_agent, "Frontend"))
 
         if not files:
             print("❌ No se generaron archivos.")
@@ -130,16 +123,7 @@ class PhaseGenerator:
         return task_output.raw if hasattr(task_output, 'raw') else str(task_output)
 
     def _extract_plan(self, raw: str) -> dict:
-        try:
-            return json.loads(raw)
-        except:
-            match = re.search(r'\{.*\}', raw, re.DOTALL)
-            if match:
-                try:
-                    return json.loads(match.group())
-                except:
-                    pass
-            return {}
+        return self._extract_json_from_text(raw) or {}
 
     def _generate_code_for_files(self, file_entries: list, agent: Agent, category: str) -> Dict[str, str]:
         file_list = "\n".join([f"- {f['path']}: {f['purpose']}" for f in file_entries])
@@ -156,8 +140,7 @@ class PhaseGenerator:
             expected_output="JSON con archivos generados."
         )
 
-        max_retries = 2
-        for attempt in range(1, max_retries + 1):
+        for attempt in range(1, 3):
             try:
                 crew = Crew(agents=[agent], tasks=[task], verbose=True)
                 crew.kickoff()
@@ -165,55 +148,42 @@ class PhaseGenerator:
                 files = self._robust_extract_files(raw)
                 if files:
                     return files
-                else:
-                    print(f"⚠️ Intento {attempt}: no se pudo extraer archivos. Reintentando...")
+                print(f"⚠️ Intento {attempt}: no se pudo extraer archivos. Reintentando...")
             except Exception as e:
-                print(f"❌ Intento {attempt} falló con error: {e}")
-                if attempt == max_retries:
+                print(f"❌ Intento {attempt} falló: {e}")
+                if attempt == 2:
                     return {}
         return {}
 
     def _robust_extract_files(self, raw_text: str) -> Dict[str, str]:
         """
-        Extrae un mapeo ruta -> código de la salida del agente.
-        Maneja JSON puro, bloques de código markdown, backticks en lugar de comillas,
-        y patrones ruta:::código.
+        Extrae un mapeo ruta -> código.
+        Combina extracción de JSON balanceado, limpieza de bloques markdown y patrones manuales.
         """
         raw_text = raw_text.strip()
 
-        # 1. Intentar JSON puro
-        files = self._try_parse_json(raw_text)
-        if files:
-            return files
+        # 1. Intentar extraer el objeto JSON más largo mediante balanceo de llaves
+        balanced_json = self._extract_json_from_text(raw_text)
+        if balanced_json and isinstance(balanced_json, dict):
+            if any('/' in k or '\\' in k for k in balanced_json.keys()):
+                return balanced_json
 
-        # 2. Extraer bloque ```json ... ```
+        # 2. Buscar dentro de bloques ```json ... ```
         block_match = re.search(r'```json\s*\n(.*?)\n```', raw_text, re.DOTALL)
         if block_match:
-            files = self._try_parse_json(block_match.group(1))
-            if files:
-                return files
+            inner_json = self._extract_json_from_text(block_match.group(1))
+            if inner_json and isinstance(inner_json, dict):
+                if any('/' in k or '\\' in k for k in inner_json.keys()):
+                    return inner_json
 
-        # 3. Extraer cualquier bloque ``` ... ```
-        any_block = re.search(r'```\s*\n(.*?)\n```', raw_text, re.DOTALL)
-        if any_block:
-            files = self._try_parse_json(any_block.group(1))
-            if files:
-                return files
-
-        # 4. Buscar el objeto JSON más largo
-        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-        if json_match:
-            files = self._try_parse_json(json_match.group())
-            if files:
-                return files
-
-        # 5. Sanitizar backticks y reintentar
+        # 3. Sanitizar backticks que el modelo usa como comillas
         sanitized = raw_text.replace('`', '"')
-        files = self._try_parse_json(sanitized)
-        if files:
-            return files
+        balanced_sanitized = self._extract_json_from_text(sanitized)
+        if balanced_sanitized and isinstance(balanced_sanitized, dict):
+            if any('/' in k or '\\' in k for k in balanced_sanitized.keys()):
+                return balanced_sanitized
 
-        # 6. Patrones ruta:::código
+        # 4. Último recurso: patrones ruta:::código
         files = {}
         pattern = re.findall(
             r'["\']?([\w\-./\\]+\.\w+)["\']?\s*:::\s*(.*?)(?=\n\S+:::\s|\Z)',
@@ -224,14 +194,35 @@ class PhaseGenerator:
 
         return files
 
-    def _try_parse_json(self, text: str) -> Dict[str, str]:
-        """Intenta cargar un string como JSON y devuelve un dict si es válido y contiene rutas de archivo."""
-        try:
-            data = json.loads(text)
-            if isinstance(data, dict):
-                # Verificar si las claves parecen rutas de archivo
-                if any('/' in k or '\\' in k for k in data.keys()):
-                    return data
-        except:
-            pass
-        return {}
+    @staticmethod
+    def _extract_json_from_text(text: str) -> Any:
+        """
+        Encuentra la primera llave de apertura y extrae el objeto JSON balanceado,
+        ignorando cualquier texto alrededor.
+        """
+        start = text.find('{')
+        if start == -1:
+            return None
+
+        count = 0
+        end = start
+        for i, ch in enumerate(text[start:], start=start):
+            if ch == '{':
+                count += 1
+            elif ch == '}':
+                count -= 1
+                if count == 0:
+                    end = i + 1
+                    break
+
+        if count == 0:
+            json_str = text[start:end]
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                # Intento adicional: limpiar escapes problemáticos
+                try:
+                    return json.loads(json_str.replace('\n', '\\n'))
+                except:
+                    pass
+        return None

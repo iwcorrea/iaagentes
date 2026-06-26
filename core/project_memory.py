@@ -1,13 +1,14 @@
 """
 Memoria estructurada del proyecto.
 Extiende ProjectState con consultas rápidas, hashes de contenido,
-issues de auditoría y resúmenes contextuales para prompts.
+issues de auditoría, resúmenes contextuales y gestión documental.
 """
 import json
 import hashlib
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+from core.document_manager import DocumentManager
 
 
 class ProjectMemory:
@@ -15,6 +16,9 @@ class ProjectMemory:
         self.workspace_path = Path(workspace_path)
         self.state_file = self.workspace_path / "project_state.json"
         self._data = self._load()
+        # Gestor documental
+        docs_folder = self.workspace_path / "docs"
+        self.docs = DocumentManager(docs_folder)
 
     def _load(self) -> Dict[str, Any]:
         if self.state_file.exists():
@@ -32,9 +36,9 @@ class ProjectMemory:
             "dependencies_cached": False,
             "tests_generated": False,
             "deploy_files_generated": False,
-            "design_decisions": [],   # decisiones del arquitecto
-            "audit_issues": [],       # issues encontrados en auditoría
-            "change_log": []          # historial de cambios recientes
+            "design_decisions": [],
+            "audit_issues": [],
+            "change_log": []
         }
 
     def _save(self):
@@ -59,7 +63,6 @@ class ProjectMemory:
         full_path = self.workspace_path / file_path
         size = len(content)
         content_hash = hashlib.md5(content.encode()).hexdigest()
-        # Actualizar o agregar
         for entry in self._data["files_manifest"]:
             if entry["path"] == file_path:
                 entry["size"] = size
@@ -93,7 +96,6 @@ class ProjectMemory:
         return [f["path"] for f in self._data["files_manifest"] if f["path"].endswith(ext)]
 
     def get_manifest_summary(self) -> str:
-        """Resumen compacto para prompts."""
         if not self._data["files_manifest"]:
             return "📁 Proyecto vacío."
         lines = ["📁 Archivos existentes:"]
@@ -176,7 +178,6 @@ class ProjectMemory:
     # Utilidades para agentes (consultas rápidas)
     # -----------------------------------------------------------------
     def get_models(self) -> List[str]:
-        """Devuelve nombres de modelos (clases) detectados en models/"""
         models = []
         for f in self._data["files_manifest"]:
             if "models/" in f["path"] and f["path"].endswith(".py"):
@@ -189,6 +190,16 @@ class ProjectMemory:
             if ("routers/" in f["path"] or "routes/" in f["path"]) and f["path"].endswith(".py"):
                 routers.append(Path(f["path"]).stem)
         return routers
+
+    # -----------------------------------------------------------------
+    # NUEVO: acceso a documentos
+    # -----------------------------------------------------------------
+    def get_instructions_for_agent(self, agent_role: str) -> str:
+        """Obtiene las instrucciones relevantes para un agente específico."""
+        return self.docs.get_context_for_agent(agent_role)
+
+    def get_all_instructions(self) -> str:
+        return self.docs.get_all_instructions()
 
     def to_dict(self) -> Dict:
         return dict(self._data)

@@ -1,7 +1,7 @@
 """
 Fase 1: Generación de código.
 Utiliza ProjectMemory para evitar alucinaciones y duplicados.
-Extracción robusta de archivos: ahora con extractor de JSON balanceado.
+Inyecta instrucciones desde documentos .md del proyecto.
 """
 import json
 import re
@@ -20,14 +20,22 @@ class PhaseGenerator:
         self.memory = memory
 
     def execute(self, user_prompt: str) -> Dict[str, Any]:
+        # Contexto existente
         context = self.memory.get_manifest_summary()
         design = self.memory.get_design_context()
         full_context = f"{context}\n{design}" if design else context
 
+        # Instrucciones documentales
+        director_instructions = self.memory.get_instructions_for_agent("director")
+        backend_instructions = self.memory.get_instructions_for_agent("backend")
+        frontend_instructions = self.memory.get_instructions_for_agent("frontend")
+
+        # Prompt para el Director
+        director_prompt = user_prompt
+        if director_instructions:
+            director_prompt = f"{director_instructions}\n\n🔧 TAREA: {user_prompt}"
         if full_context and "vacío" not in full_context:
-            full_prompt = f"{full_context}\n\n🔧 TAREA: {user_prompt}\n\nBasate en los archivos existentes. No dupliques."
-        else:
-            full_prompt = user_prompt
+            director_prompt += f"\n\n{full_context}\nBasate en los archivos existentes. No dupliques."
 
         director = self.agent_cache.get_or_create(
             "director",
@@ -43,7 +51,7 @@ class PhaseGenerator:
         plan_task = Task(
             description=(
                 f"Analiza el siguiente requerimiento y genera un plan de archivos JSON.\n"
-                f"Requerimiento:\n{full_prompt}\n\n"
+                f"Requerimiento:\n{director_prompt}\n\n"
                 "Responde EXCLUSIVAMENTE con un JSON válido con esta estructura:\n"
                 "{\n"
                 '  "plan": [\n'
@@ -82,30 +90,24 @@ class PhaseGenerator:
             return {"files": {}}
 
         files = {}
-        backend_agent = self.agent_cache.get_or_create(
+        # Preparar agentes con instrucciones personalizadas
+        backend_agent = self._create_agent_with_instructions(
             "backend",
-            lambda: Agent(
-                role="Desarrollador Backend Python",
-                goal="Generar código Python/FastAPI de alta calidad.",
-                backstory="Eres un desarrollador backend experto en FastAPI.",
-                verbose=True,
-                allow_delegation=False,
-            )
+            backend_instructions,
+            role="Desarrollador Backend Python",
+            goal="Generar código Python/FastAPI de alta calidad.",
+            backstory="Eres un desarrollador backend experto en FastAPI."
         )
-
-        frontend_agent = self.agent_cache.get_or_create(
+        frontend_agent = self._create_agent_with_instructions(
             "frontend",
-            lambda: Agent(
-                role="Desarrollador Frontend React",
-                goal="Generar componentes React con Tailwind CSS.",
-                backstory="Eres un desarrollador frontend experto en React y Tailwind.",
-                verbose=True,
-                allow_delegation=False,
-            )
+            frontend_instructions,
+            role="Desarrollador Frontend React",
+            goal="Generar componentes React con Tailwind CSS.",
+            backstory="Eres un desarrollador frontend experto en React y Tailwind."
         )
 
         backend_files = [f for f in new_files if f["path"].endswith((".py", ".txt"))]
-        frontend_files = [f for f in new_files if f["path"].endswith((".jsx", ".tsx", ".css", ".json", ".js", ".jsx"))]
+        frontend_files = [f for f in new_files if f["path"].endswith((".jsx", ".tsx", ".css", ".json", ".js"))]
 
         if backend_files:
             files.update(self._generate_code_for_files(backend_files, backend_agent, "Backend"))
@@ -118,6 +120,16 @@ class PhaseGenerator:
 
         print(f"✅ Generados {len(files)} archivos en total.")
         return {"files": files}
+
+    def _create_agent_with_instructions(self, agent_name: str, instructions: str, **kwargs):
+        """Crea un agente añadiendo instrucciones documentales a su backstory o goal."""
+        if instructions:
+            original_backstory = kwargs.get("backstory", "")
+            kwargs["backstory"] = f"{original_backstory}\n\n📚 Sigue estas instrucciones del proyecto:\n{instructions}"
+        return self.agent_cache.get_or_create(
+            agent_name,
+            lambda: Agent(**kwargs, verbose=True, allow_delegation=False)
+        )
 
     def _get_raw_output(self, task_output) -> str:
         return task_output.raw if hasattr(task_output, 'raw') else str(task_output)
@@ -134,11 +146,7 @@ class PhaseGenerator:
             "y los valores son el código fuente completo.\n"
             "Ejemplo: {{\"ruta/archivo.py\": \"código aquí\"}}"
         )
-        task = Task(
-            description=task_desc,
-            agent=agent,
-            expected_output="JSON con archivos generados."
-        )
+        task = Task(description=task_desc, agent=agent, expected_output="JSON con archivos generados.")
 
         for attempt in range(1, 3):
             try:
@@ -157,12 +165,13 @@ class PhaseGenerator:
 
     def _robust_extract_files(self, raw_text: str) -> Dict[str, str]:
         """
-        Extrae un mapeo ruta -> código.
-        Combina extracción de JSON balanceado, limpieza de bloques markdown y patrones manuales.
+        Extrae un mapeo ruta -> código de la salida del agente.
+        Maneja JSON puro, bloques de código markdown, backticks en lugar de comillas,
+        y patrones ruta:::código.
         """
         raw_text = raw_text.strip()
 
-        # 1. Intentar extraer el objeto JSON más largo mediante balanceo de llaves
+        # 1. Intentar extraer el objeto JSON balanceado
         balanced_json = self._extract_json_from_text(raw_text)
         if balanced_json and isinstance(balanced_json, dict):
             if any('/' in k or '\\' in k for k in balanced_json.keys()):
@@ -220,7 +229,6 @@ class PhaseGenerator:
             try:
                 return json.loads(json_str)
             except json.JSONDecodeError:
-                # Intento adicional: limpiar escapes problemáticos
                 try:
                     return json.loads(json_str.replace('\n', '\\n'))
                 except:

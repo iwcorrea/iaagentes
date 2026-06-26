@@ -1,6 +1,6 @@
 """
 Orquestador principal del ecosistema.
-Utiliza ProjectMemory para persistencia, consultas rápidas y anti-alucinación.
+Utiliza ProjectMemory para persistencia y soporta skills externos.
 """
 import os
 from pathlib import Path
@@ -14,6 +14,7 @@ from core.phases.phase_dependencies import PhaseDependencies
 from core.phases.phase_deploy import PhaseDeploy
 from core.phases.phase_repair import PhaseRepair
 from core.agent_cache import AgentCache
+from core.skill_registry import SkillRegistry
 from core.project_context import ProjectContext
 
 
@@ -24,7 +25,8 @@ class AutonomousArchitectOrchestrator:
         else:
             self.workspace_base = Path(workspace_base)
         self.workspace_base.mkdir(exist_ok=True)
-        self.agent_cache = AgentCache()
+        skill_registry = SkillRegistry()
+        self.agent_cache = AgentCache(skill_registry)
         self.project_context = ProjectContext()
 
     def orchestrate_project(

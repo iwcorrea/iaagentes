@@ -1,14 +1,150 @@
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import api from '../api/axios'
 
-// ─── Secciones del panel ───
+/* ------------------------------------------------------------------ */
+/*  Constantes y subcomponentes con React.memo                        */
+/* ------------------------------------------------------------------ */
+
 const SECTIONS = [
   { id: 'models', label: '🤖 Modelos', icon: '🤖' },
   { id: 'agents', label: '👤 Agentes', icon: '👤' },
   { id: 'teams', label: '👥 Equipos', icon: '👥' }
 ]
 
-// ─── Componente principal ───
+const ModelsSection = React.memo(({ settings, updateModel }) => (
+  <div className="space-y-6">
+    <h3 className="text-xl font-bold text-gray-100">🤖 Modelos y LLM</h3>
+    <div>
+      <label className="block text-sm font-medium text-gray-300 mb-2">Modelo principal</label>
+      <select
+        value={settings.models?.primary || 'local-coder'}
+        onChange={e => updateModel('primary', e.target.value)}
+        className="bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-gray-200 w-full"
+      >
+        <option value="local-coder">🦙 Local (Qwen 1.5B)</option>
+        <option value="cloud-coder">☁️ Nube (OpenRouter)</option>
+        <option value="hibrido-coder">🔀 Híbrido</option>
+      </select>
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-2">Temperatura</label>
+        <input
+          type="number" step="0.1" min="0" max="2"
+          value={settings.models?.temperature ?? 0.0}
+          onChange={e => updateModel('temperature', parseFloat(e.target.value))}
+          className="bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-gray-200 w-full"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-300 mb-2">Max tokens</label>
+        <input
+          type="number" step="256" min="256" max="8192"
+          value={settings.models?.max_tokens ?? 4096}
+          onChange={e => updateModel('max_tokens', parseInt(e.target.value))}
+          className="bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-gray-200 w-full"
+        />
+      </div>
+    </div>
+  </div>
+))
+
+const AgentsSection = React.memo(({ agents, agentsConfig, toggleAgent, updateAgentBackstory }) => (
+  <div className="space-y-6">
+    <h3 className="text-xl font-bold text-gray-100">👤 Agentes</h3>
+    {agents.length === 0 && (
+      <p className="text-gray-500 text-sm">No se encontraron agentes disponibles.</p>
+    )}
+    {agents.map(agent => {
+      const config = agentsConfig[agent.name] || { enabled: true, backstory: '', tools: [] }
+      return (
+        <div key={agent.name} className="bg-gray-800/50 border border-gray-700/50 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">{agent.emoji || '🤖'}</span>
+              <div>
+                <h4 className="font-bold text-gray-200">{agent.name}</h4>
+                <p className="text-xs text-gray-400">{agent.role}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => toggleAgent(agent.name)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition ${
+                config.enabled
+                  ? 'bg-green-600/20 text-green-400 border border-green-500/30'
+                  : 'bg-red-600/20 text-red-400 border border-red-500/30'
+              }`}
+            >
+              {config.enabled ? 'Activado' : 'Desactivado'}
+            </button>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Backstory</label>
+            <textarea
+              value={config.backstory || ''}
+              onChange={e => updateAgentBackstory(agent.name, e.target.value)}
+              rows={3}
+              className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 w-full resize-none"
+            />
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {(config.tools || agent.tools || []).map(tool => (
+              <span key={tool} className="text-xs bg-gray-700/50 text-gray-300 px-2 py-0.5 rounded-full border border-gray-600/50">
+                {tool}
+              </span>
+            ))}
+          </div>
+        </div>
+      )
+    })}
+  </div>
+))
+
+const TeamsSection = React.memo(({ teams, availableAgents, addTeam, removeTeam, toggleAgentInTeam }) => (
+  <div className="space-y-6">
+    <div className="flex justify-between items-center">
+      <h3 className="text-xl font-bold text-gray-100">👥 Equipos</h3>
+      <button onClick={addTeam} className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm transition">
+        + Nuevo equipo
+      </button>
+    </div>
+    {teams.length === 0 && (
+      <p className="text-gray-500 text-sm">No hay equipos definidos. Creá uno para agrupar agentes.</p>
+    )}
+    {teams.map((team, idx) => (
+      <div key={`team-${idx}`} className="bg-gray-800/50 border border-gray-700/50 rounded-2xl p-4 space-y-3">
+        <div className="flex justify-between items-center">
+          <h4 className="font-bold text-gray-200">{team.name}</h4>
+          <button onClick={() => removeTeam(idx)} className="text-red-400 hover:text-red-300 text-sm">
+            🗑️ Eliminar
+          </button>
+        </div>
+        <p className="text-sm text-gray-400">{team.description || 'Sin descripción'}</p>
+        <div>
+          <h5 className="text-sm font-medium text-gray-300 mb-2">Agentes asignados</h5>
+          <div className="grid grid-cols-2 gap-2">
+            {availableAgents.map(agent => (
+              <label key={agent.name} className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={(team.agents || []).includes(agent.name)}
+                  onChange={() => toggleAgentInTeam(idx, agent.name)}
+                  className="rounded bg-gray-700 border-gray-600"
+                />
+                {agent.emoji || '🤖'} {agent.name}
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+    ))}
+  </div>
+))
+
+/* ------------------------------------------------------------------ */
+/*  Componente principal                                              */
+/* ------------------------------------------------------------------ */
+
 export default function SettingsPanel() {
   const [settings, setSettings] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -16,12 +152,11 @@ export default function SettingsPanel() {
   const [activeSection, setActiveSection] = useState('models')
   const [toast, setToast] = useState(null)
 
-  const showToast = (message, type = 'info') => {
+  const showToast = useCallback((message, type = 'info') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 3000)
-  }
+  }, [])
 
-  // Cargar configuración del backend
   const loadSettings = useCallback(async () => {
     try {
       const res = await api.get('/api/settings')
@@ -31,11 +166,10 @@ export default function SettingsPanel() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [showToast])
 
   useEffect(() => { loadSettings() }, [loadSettings])
 
-  // Persistencia local: tema y modelo preferido
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme')
     if (savedTheme) document.documentElement.classList.toggle('dark', savedTheme === 'dark')
@@ -45,7 +179,7 @@ export default function SettingsPanel() {
     }
   }, [settings])
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     setSaving(true)
     try {
       await api.put('/api/settings', {
@@ -53,40 +187,37 @@ export default function SettingsPanel() {
         agents: settings.agents,
         teams: settings.teams
       })
-      localStorage.setItem('brainModel', settings.models?.primary || 'gratuito-fallback')
+      localStorage.setItem('brainModel', settings.models?.primary || 'local-coder')
       showToast('Configuración guardada', 'success')
     } catch (err) {
       showToast('Error al guardar', 'error')
     } finally {
       setSaving(false)
     }
-  }
+  }, [settings, showToast])
 
-  // Handlers para modelos
-  const updateModel = (field, value) => {
+  const updateModel = useCallback((field, value) => {
     setSettings(prev => ({ ...prev, models: { ...prev.models, [field]: value } }))
     if (field === 'primary') localStorage.setItem('brainModel', value)
-  }
+  }, [])
 
-  // Handlers para agentes
-  const toggleAgent = (name) => {
+  const toggleAgent = useCallback((name) => {
     setSettings(prev => {
       const agents = { ...prev.agents }
       if (agents[name]) agents[name] = { ...agents[name], enabled: !agents[name].enabled }
       return { ...prev, agents }
     })
-  }
+  }, [])
 
-  const updateAgentBackstory = (name, backstory) => {
+  const updateAgentBackstory = useCallback((name, backstory) => {
     setSettings(prev => {
       const agents = { ...prev.agents }
       if (agents[name]) agents[name] = { ...agents[name], backstory }
       return { ...prev, agents }
     })
-  }
+  }, [])
 
-  // Handlers para equipos
-  const addTeam = () => {
+  const addTeam = useCallback(() => {
     const name = prompt('Nombre del nuevo equipo:')
     if (name?.trim()) {
       setSettings(prev => ({
@@ -94,13 +225,13 @@ export default function SettingsPanel() {
         teams: [...(prev.teams || []), { name: name.trim(), description: '', agents: [] }]
       }))
     }
-  }
+  }, [])
 
-  const removeTeam = (index) => {
+  const removeTeam = useCallback((index) => {
     setSettings(prev => ({ ...prev, teams: prev.teams.filter((_, i) => i !== index) }))
-  }
+  }, [])
 
-  const toggleAgentInTeam = (teamIndex, agentName) => {
+  const toggleAgentInTeam = useCallback((teamIndex, agentName) => {
     setSettings(prev => {
       const teams = [...prev.teams]
       const team = { ...teams[teamIndex] }
@@ -109,7 +240,7 @@ export default function SettingsPanel() {
       teams[teamIndex] = team
       return { ...prev, teams }
     })
-  }
+  }, [])
 
   if (loading) {
     return (
@@ -120,11 +251,19 @@ export default function SettingsPanel() {
     )
   }
 
-  if (!settings) return <div className="p-6 text-gray-400">No se pudo cargar la configuración.</div>
+  if (!settings) {
+    return (
+      <div className="p-6 text-center">
+        <p className="text-gray-400 mb-3">No se pudo cargar la configuración.</p>
+        <button onClick={loadSettings} className="px-4 py-2 bg-cyan-600/20 text-cyan-400 rounded-lg hover:bg-cyan-600/30 transition">
+          Reintentar
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full">
-      {/* Sidebar de secciones */}
       <aside className="w-56 bg-gray-800/40 border-r border-gray-700/30 p-4 space-y-2">
         <h2 className="text-lg font-bold text-gray-100 mb-4">⚙️ Configuración</h2>
         {SECTIONS.map(section => (
@@ -151,7 +290,6 @@ export default function SettingsPanel() {
         </div>
       </aside>
 
-      {/* Contenido dinámico */}
       <div className="flex-1 overflow-y-auto p-6">
         {activeSection === 'models' && <ModelsSection settings={settings} updateModel={updateModel} />}
         {activeSection === 'agents' && (
@@ -173,7 +311,6 @@ export default function SettingsPanel() {
         )}
       </div>
 
-      {/* Toast de notificación */}
       {toast && (
         <div className={`fixed bottom-4 right-4 z-50 px-4 py-2 rounded-lg text-white text-sm shadow-lg animate-slide-up ${
           toast.type === 'error' ? 'bg-red-500' : toast.type === 'success' ? 'bg-green-500' : 'bg-blue-500'
@@ -181,138 +318,6 @@ export default function SettingsPanel() {
           {toast.message}
         </div>
       )}
-    </div>
-  )
-}
-
-// ─── Subcomponentes (factorizados) ───
-
-function ModelsSection({ settings, updateModel }) {
-  return (
-    <div className="space-y-6">
-      <h3 className="text-xl font-bold text-gray-100">🤖 Modelos y LLM</h3>
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-2">Modelo principal</label>
-        <select
-          value={settings.models?.primary || 'gratuito-fallback'}
-          onChange={e => updateModel('primary', e.target.value)}
-          className="bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-gray-200 w-full"
-        >
-          <option value="local-coder">🦙 Local (Qwen 1.5B)</option>
-          <option value="cloud-coder">☁️ Nube (OpenRouter)</option>
-          <option value="hibrido-coder">🔀 Híbrido</option>
-        </select>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">Temperatura</label>
-          <input
-            type="number" step="0.1" min="0" max="2"
-            value={settings.models?.temperature ?? 0.0}
-            onChange={e => updateModel('temperature', parseFloat(e.target.value))}
-            className="bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-gray-200 w-full"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">Max tokens</label>
-          <input
-            type="number" step="256" min="256" max="8192"
-            value={settings.models?.max_tokens ?? 4096}
-            onChange={e => updateModel('max_tokens', parseInt(e.target.value))}
-            className="bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-gray-200 w-full"
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function AgentsSection({ agents, agentsConfig, toggleAgent, updateAgentBackstory }) {
-  return (
-    <div className="space-y-6">
-      <h3 className="text-xl font-bold text-gray-100">👤 Agentes</h3>
-      {agents.map(agent => {
-        const config = agentsConfig[agent.name] || { enabled: true, backstory: '', tools: [] }
-        return (
-          <div key={agent.name} className="bg-gray-800/50 border border-gray-700/50 rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">{agent.emoji || '🤖'}</span>
-                <div>
-                  <h4 className="font-bold text-gray-200">{agent.name}</h4>
-                  <p className="text-xs text-gray-400">{agent.role}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => toggleAgent(agent.name)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                  config.enabled
-                    ? 'bg-green-600/20 text-green-400 border border-green-500/30'
-                    : 'bg-red-600/20 text-red-400 border border-red-500/30'
-                }`}
-              >
-                {config.enabled ? 'Activado' : 'Desactivado'}
-              </button>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1">Backstory</label>
-              <textarea
-                value={config.backstory || ''}
-                onChange={e => updateAgentBackstory(agent.name, e.target.value)}
-                rows={3}
-                className="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 w-full resize-none"
-              />
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {(config.tools || agent.tools || []).map(tool => (
-                <span key={tool} className="text-xs bg-gray-700/50 text-gray-300 px-2 py-0.5 rounded-full border border-gray-600/50">
-                  {tool}
-                </span>
-              ))}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function TeamsSection({ teams, availableAgents, addTeam, removeTeam, toggleAgentInTeam }) {
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h3 className="text-xl font-bold text-gray-100">👥 Equipos</h3>
-        <button onClick={addTeam} className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm transition">
-          + Nuevo equipo
-        </button>
-      </div>
-      {teams.map((team, idx) => (
-        <div key={idx} className="bg-gray-800/50 border border-gray-700/50 rounded-2xl p-4 space-y-3">
-          <div className="flex justify-between items-center">
-            <h4 className="font-bold text-gray-200">{team.name}</h4>
-            <button onClick={() => removeTeam(idx)} className="text-red-400 hover:text-red-300 text-sm">
-              🗑️ Eliminar
-            </button>
-          </div>
-          <p className="text-sm text-gray-400">{team.description || 'Sin descripción'}</p>
-          <div>
-            <h5 className="text-sm font-medium text-gray-300 mb-2">Agentes asignados</h5>
-            <div className="grid grid-cols-2 gap-2">
-              {availableAgents.map(agent => (
-                <label key={agent.name} className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={(team.agents || []).includes(agent.name)}
-                    onChange={() => toggleAgentInTeam(idx, agent.name)}
-                    className="rounded bg-gray-700 border-gray-600"
-                  />
-                  {agent.emoji || '🤖'} {agent.name}
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-      ))}
     </div>
   )
 }

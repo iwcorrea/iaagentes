@@ -8,6 +8,8 @@ import ConsolePanel from './components/ConsolePanel'
 import TeamPanel from './components/TeamPanel'
 import SettingsPanel from './components/SettingsPanel'
 import ProjectDashboard from './components/ProjectDashboard'
+import SkillsPanel from './components/SkillsPanel'
+import DocsManager from './components/DocsManager'
 import { ProjectProvider, useProject } from './context/ProjectContext'
 
 function MainContent() {
@@ -21,6 +23,8 @@ function MainContent() {
     { id: 'dashboard', label: 'Dashboard', icon: '📊', requiresProject: true },
     { id: 'preview', label: 'Vista previa', icon: '👁️', requiresProject: true },
     { id: 'console', label: 'Consola', icon: '🖥️', requiresProject: true },
+    { id: 'docs', label: 'Docs', icon: '📚', requiresProject: true },
+    { id: 'skills', label: 'Skills', icon: '🧠' },
     { id: 'settings', label: 'Configuración', icon: '⚙️' }
   ]
 
@@ -51,6 +55,8 @@ function MainContent() {
           {activeTab === 'dashboard' && <ProjectDashboard />}
           {activeTab === 'preview' && <PreviewPanel />}
           {activeTab === 'console' && <ConsolePanel />}
+          {activeTab === 'docs' && activeProjectId && <DocsManager projectId={activeProjectId} />}
+          {activeTab === 'skills' && <SkillsPanel />}
           {activeTab === 'settings' && <SettingsPanel />}
         </div>
       </main>

@@ -171,3 +171,14 @@ def audit_project(project_id: str):
     auditor = ProjectAuditor(str(project_path))
     issues = auditor.audit()
     return {"project_id": project_id, "issues": issues, "status": "ok" if not issues else "attention"}
+
+@router.get("/projects/{project_id}/docs")
+def list_project_docs(project_id: str):
+    project_path = project_manager.get_project_path(project_id)
+    if not project_path:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    docs_folder = project_path / "docs"
+    if not docs_folder.exists():
+        return {"files": []}
+    files = [str(f.relative_to(docs_folder)) for f in docs_folder.glob("*.md")]
+    return {"project_id": project_id, "files": sorted(files)}

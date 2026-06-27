@@ -22,23 +22,18 @@ export default function ChatPanel() {
   const [currentPhase, setCurrentPhase] = useState(null)
   const [progressMessages, setProgressMessages] = useState([])
   const [agentProgress, setAgentProgress] = useState(0)
-  const [finalReport, setFinalReport] = useState(null)
   const [connectionStatus, setConnectionStatus] = useState('checking')
+  const [toasts, setToasts] = useState([])
   const { activeProjectId, projectName, setActiveProjectId, chatMessages, setChatMessages } = useProject()
   const bottomRef = useRef(null)
 
-  const showToast = (message, type = 'info') => {
-    const toast = document.createElement('div')
-    toast.className = `fixed bottom-4 right-4 z-50 px-4 py-2 rounded-lg text-white text-sm shadow-lg animate-slide-up ${
-      type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-green-500' : 'bg-blue-500'
-    }`
-    toast.textContent = message
-    document.body.appendChild(toast)
+  const showToast = useCallback((message, type = 'info') => {
+    const id = Date.now()
+    setToasts(prev => [...prev, { id, message, type }])
     setTimeout(() => {
-      toast.classList.add('animate-slide-down')
-      setTimeout(() => toast.remove(), 300)
+      setToasts(prev => prev.filter(t => t.id !== id))
     }, 4000)
-  }
+  }, [])
 
   // Verificar estado de conexión
   useEffect(() => {
@@ -46,7 +41,6 @@ export default function ChatPanel() {
       try {
         const res = await api.get('/')
         if (res.data.status === 'ok') {
-          // Verificar Ollama
           try {
             await api.get('/api/agents')
             setConnectionStatus('connected')
@@ -72,11 +66,10 @@ export default function ChatPanel() {
           const res = await api.get('/api/agents')
           const progress = res.data.progress || 0
           setAgentProgress(progress)
-          
-          // Determinar fase actual
+
           const phase = PHASES.find(p => progress <= p.progress) || PHASES[PHASES.length - 1]
           setCurrentPhase(phase)
-          
+
           const msgs = []
           const teams = res.data.teams || []
           const allAgents = teams.flatMap(t => t.agents)
@@ -102,7 +95,7 @@ export default function ChatPanel() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages, progressMessages, finalReport])
+  }, [chatMessages, progressMessages])
 
   const send = useCallback(async () => {
     const text = input.trim()
@@ -110,7 +103,6 @@ export default function ChatPanel() {
 
     setInput('')
     setLoading(true)
-    setFinalReport(null)
 
     const userMsg = { role: 'user', content: text }
     const updatedMessages = [...chatMessages, userMsg]
@@ -125,9 +117,7 @@ export default function ChatPanel() {
       }
       const res = await api.post('/v1/chat/completions', { messages: updatedMessages }, { params })
       const reply = res.data.choices?.[0]?.message?.content || 'Sin respuesta'
-      const finalMessages = [...updatedMessages, { role: 'assistant', content: reply }]
-      setChatMessages(finalMessages)
-      setFinalReport(reply)
+      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
 
       const projectIdMatch = reply.match(/Proyecto ID: (\w+)/)
       if (projectIdMatch && !activeProjectId) {
@@ -135,7 +125,7 @@ export default function ChatPanel() {
         showToast('¡Proyecto creado!', 'success')
       }
       if (activeProjectId) {
-        api.post(`/projects/${activeProjectId}/chat`, { messages: finalMessages }).catch(() => {})
+        api.post(`/projects/${activeProjectId}/chat`, { messages: [...updatedMessages, { role: 'assistant', content: reply }] }).catch(() => {})
       }
     } catch (err) {
       showToast('Error al comunicarse con los agentes', 'error')
@@ -143,14 +133,14 @@ export default function ChatPanel() {
     } finally {
       setLoading(false)
     }
-  }, [input, loading, chatMessages, activeProjectId, scope, mode, turbo, brainModel, setActiveProjectId, setChatMessages])
+  }, [input, loading, chatMessages, activeProjectId, scope, mode, turbo, brainModel, setActiveProjectId, setChatMessages, showToast])
 
   const placeholderText = activeProjectId
     ? `Modificar "${projectName || activeProjectId}"...`
     : 'Crear un nuevo proyecto...'
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       {/* Barra de estado de conexión */}
       <div className={`px-4 py-1 text-xs text-center ${
         connectionStatus === 'connected' ? 'bg-green-900/50 text-green-400' :
@@ -160,6 +150,17 @@ export default function ChatPanel() {
         {connectionStatus === 'connected' && '🟢 Sistema conectado'}
         {connectionStatus === 'limited' && '🟡 OpenRouter con rate‑limit'}
         {connectionStatus === 'disconnected' && '🔴 Sin conexión al servidor'}
+      </div>
+
+      {/* Toasts */}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        {toasts.map(t => (
+          <div key={t.id} className={`px-4 py-2 rounded-lg text-white text-sm shadow-lg transition-all ${
+            t.type === 'error' ? 'bg-red-500' : t.type === 'success' ? 'bg-green-500' : 'bg-blue-500'
+          }`}>
+            {t.message}
+          </div>
+        ))}
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-4 p-4">
@@ -204,14 +205,6 @@ export default function ChatPanel() {
                   </div>
                 ))}
               </div>
-            </div>
-          </div>
-        )}
-        {finalReport && (
-          <div className="flex justify-start">
-            <div className="bg-gray-800/80 border border-gray-700/50 px-5 py-3 rounded-2xl text-sm text-gray-300 max-w-[80%]">
-              <div className="font-medium text-green-400 mb-2">✅ Generación completada</div>
-              <pre className="whitespace-pre-wrap font-sans text-xs">{finalReport}</pre>
             </div>
           </div>
         )}

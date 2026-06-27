@@ -127,7 +127,7 @@ def chat_completions(
 
         # 🔧 Configurar variables de entorno para CrewAI según el modelo
         if actual_model == "local-coder":
-            # Verificar que Ollama esté vivo (si no, devolver mensaje claro)
+            # Verificar que Ollama esté vivo
             try:
                 r = requests.get("http://localhost:11434", timeout=3)
                 if r.status_code != 200:
@@ -143,16 +143,13 @@ def chat_completions(
                     "id": "chatcmpl-error",
                     "choices": [{"index": 0, "message": {"role": "assistant", "content": error_msg}, "finish_reason": "stop"}]
                 }
-
-            # Configurar para Ollama directo
             os.environ["OPENAI_API_BASE"] = "http://localhost:11434"
             os.environ["OPENAI_MODEL_NAME"] = "ollama/qwen2.5-coder:1.5b"
-            os.environ["LITELLM_TIMEOUT"] = "60"   # 1 minuto máximo
+            os.environ["LITELLM_TIMEOUT"] = "60"
         else:
-            # Usar proxy LiteLLM (OpenRouter y fallbacks)
             os.environ["OPENAI_API_BASE"] = "http://localhost:4000"
-            os.environ["OPENAI_MODEL_NAME"] = actual_model  # cloud-coder o hibrido-coder
-            os.environ["LITELLM_TIMEOUT"] = "120"  # 2 minutos para modelos en la nube
+            os.environ["OPENAI_MODEL_NAME"] = actual_model
+            os.environ["LITELLM_TIMEOUT"] = "120"
         os.environ["OPENAI_API_KEY"] = "no-key-required"
 
         from core.agent_cache import clear_cache
@@ -253,6 +250,20 @@ def create_guided_project(data: dict):
         "files_expected": result["files_expected"],
         "message": "Proyecto creado exitosamente"
     }
+
+@app.get("/api/skills")
+def get_skills():
+    from core.skill_registry import SkillRegistry
+    registry = SkillRegistry()
+    skills_list = []
+    for name, skill in registry.skills.items():
+        skills_list.append({
+            "name": name,
+            "role": skill.get("role", ""),
+            "goal": skill.get("goal", ""),
+            "tags": skill.get("tags", []),
+        })
+    return {"skills": skills_list}
 
 @app.get("/api/settings")
 def get_settings():

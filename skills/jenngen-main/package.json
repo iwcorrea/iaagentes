@@ -1,0 +1,43 @@
+{
+  "name": "jenngen",
+  "version": "0.0.11",
+  "description": "AI static site generator: $ npx jenngen .",
+  "main": "index.mjs",
+  "scripts": {
+    "build": "node . website",
+    "watch": "node . website --watch",
+    "server": "node . website --watch --server",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "bin": {
+    "jenngen": "./index.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thrashr888/jenngen.git"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "static",
+    "generator"
+  ],
+  "author": "Paul Thrasher <thrashr888@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/thrashr888/jenngen/issues"
+  },
+  "homepage": "https://github.com/thrashr888/jenngen#readme",
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "connect-livereload": "^0.6.1",
+    "express": "^4.18.2",
+    "langchain": "^0.0.211",
+    "livereload": "^0.9.3",
+    "modelfusion": "^0.100.0",
+    "yargs": "^17.7.2"
+  },
+  "require": {
+    "node": ">=16.0.0"
+  }
+}

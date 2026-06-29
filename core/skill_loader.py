@@ -12,7 +12,6 @@ import yaml
 
 
 class SkillLoader:
-    """Clase base para loaders de skills."""
     def can_load(self, path: Path) -> bool:
         raise NotImplementedError
 
@@ -22,13 +21,20 @@ class SkillLoader:
 
 class JsonSkillLoader(SkillLoader):
     def can_load(self, path: Path) -> bool:
-        return path.suffix in ('.json',)
+        return path.suffix == '.json'
 
     def load(self, path: Path) -> Optional[Dict[str, Any]]:
         try:
             data = json.loads(path.read_text(encoding='utf-8'))
+            if not isinstance(data, dict) or "name" not in data:
+                print(f"⚠️ Skill JSON inválido (falta 'name'): {path}")
+                return None
             return self._normalize(data)
-        except:
+        except json.JSONDecodeError as e:
+            print(f"❌ Error de JSON en {path}: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ Error inesperado cargando {path}: {e}")
             return None
 
     def _normalize(self, data: dict) -> dict:
@@ -54,8 +60,12 @@ class YamlSkillLoader(SkillLoader):
     def load(self, path: Path) -> Optional[Dict[str, Any]]:
         try:
             data = yaml.safe_load(path.read_text(encoding='utf-8'))
+            if not isinstance(data, dict) or "name" not in data:
+                print(f"⚠️ Skill YAML inválido (falta 'name'): {path}")
+                return None
             return self._normalize(data)
-        except:
+        except Exception as e:
+            print(f"❌ Error cargando YAML {path}: {e}")
             return None
 
     def _normalize(self, data: dict) -> dict:
@@ -87,26 +97,24 @@ class PythonSkillLoader(SkillLoader):
             if hasattr(module, "get_skill_config"):
                 return module.get_skill_config()
             return None
-        except:
+        except Exception as e:
+            print(f"❌ Error cargando skill Python {path}: {e}")
             return None
 
 
 class DirectorySkillLoader(SkillLoader):
-    """Carga skills desde una carpeta que contenga manifest.yaml/json o archivos sueltos."""
     MANIFEST_NAMES = ["manifest.yaml", "manifest.json", "skill.yaml", "skill.json", "agent.yaml", "agent.json"]
 
     def can_load(self, path: Path) -> bool:
         return path.is_dir()
 
     def load(self, path: Path) -> Optional[Dict[str, Any]]:
-        # Buscar manifiesto
         for name in self.MANIFEST_NAMES:
             manifest = path / name
             if manifest.exists():
                 loader = self._get_loader_for(manifest)
                 if loader:
                     return loader.load(manifest)
-        # Si no hay manifiesto, intentar cargar como conjunto de archivos
         return self._load_from_parts(path)
 
     def _get_loader_for(self, file_path: Path):
@@ -130,11 +138,9 @@ class DirectorySkillLoader(SkillLoader):
             "prompts": {},
             "context_files": [],
         }
-        # Buscar system_prompt.md
         prompt_file = path / "system_prompt.md"
         if prompt_file.exists():
             config["backstory"] = prompt_file.read_text(encoding='utf-8')
-        # Buscar tools/ carpeta con scripts
         tools_dir = path / "tools"
         if tools_dir.exists():
             for tool_file in tools_dir.glob("*.py"):

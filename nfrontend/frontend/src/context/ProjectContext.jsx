@@ -4,105 +4,71 @@ import api from '../api/axios'
 const ProjectContext = createContext()
 
 export function ProjectProvider({ children }) {
-  const [activeProjectId, setActiveProjectId] = useState(() => {
-    // Recuperar proyecto activo desde localStorage al iniciar
-    return localStorage.getItem('activeProjectId') || null
-  })
+  const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem('activeProjectId') || null)
   const [projectName, setProjectName] = useState('')
   const [chatMessages, setChatMessages] = useState([])
   const [executionUrl, setExecutionUrl] = useState(null)
   const [projectFiles, setProjectFiles] = useState([])
   const [projectStats, setProjectStats] = useState({ files: 0, lastGeneration: null })
-  const [loading, setLoading] = useState(false)   // para feedback en UI
-  const [error, setError] = useState(null)       // mensaje de error global
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
-  // Persistir proyecto activo
   useEffect(() => {
-    if (activeProjectId) {
-      localStorage.setItem('activeProjectId', activeProjectId)
-    } else {
-      localStorage.removeItem('activeProjectId')
-    }
+    if (activeProjectId) localStorage.setItem('activeProjectId', activeProjectId)
+    else localStorage.removeItem('activeProjectId')
   }, [activeProjectId])
 
-  // Cargar datos del proyecto activo
   useEffect(() => {
     if (!activeProjectId) {
-      setProjectName('')
-      setChatMessages([])
-      setExecutionUrl(null)
-      setProjectFiles([])
-      setProjectStats({ files: 0, lastGeneration: null })
-      setError(null)
+      setProjectName(''); setChatMessages([]); setExecutionUrl(null)
+      setProjectFiles([]); setProjectStats({ files: 0, lastGeneration: null }); setError(null)
       return
     }
-
     let cancelled = false
     setLoading(true)
     setError(null)
 
-    const loadProjectData = async () => {
+    const load = async () => {
       try {
         const [nameRes, chatRes, filesRes] = await Promise.all([
-          api.get(`/projects/${activeProjectId}/name`),
-          api.get(`/projects/${activeProjectId}/chat`),
-          api.get(`/projects/${activeProjectId}/files`)
+          api.get(`/api/projects/${activeProjectId}/name`),
+          api.get(`/api/projects/${activeProjectId}/chat`),
+          api.get(`/api/projects/${activeProjectId}/files`)
         ])
         if (cancelled) return
         setProjectName(nameRes.data.name || activeProjectId)
         setChatMessages(chatRes.data.messages || [])
         const files = filesRes.data.files || []
         setProjectFiles(files)
-        setProjectStats({
-          files: files.length,
-          lastGeneration: files.length > 0 ? new Date().toISOString() : null
-        })
+        setProjectStats({ files: files.length, lastGeneration: files.length > 0 ? new Date().toISOString() : null })
       } catch (err) {
         if (!cancelled) {
           setError('Error al cargar datos del proyecto')
           console.error('ProjectContext load error:', err)
-          // Dejar estados vacíos sin romper la UI
-          setProjectName(activeProjectId)
-          setChatMessages([])
-          setProjectFiles([])
+          // No vaciar archivos previos
         }
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
-
-    loadProjectData()
+    load()
     return () => { cancelled = true }
   }, [activeProjectId])
 
   const updateProjectName = useCallback(async (name) => {
     if (!activeProjectId) return
     try {
-      await api.put(`/projects/${activeProjectId}/name`, { name })
+      await api.put(`/api/projects/${activeProjectId}/name`, { name })
       setProjectName(name)
-    } catch (err) {
-      setError('Error al actualizar el nombre del proyecto')
-    }
+    } catch (err) { setError('Error al actualizar el nombre') }
   }, [activeProjectId])
 
-  const contextValue = {
-    activeProjectId,
-    setActiveProjectId,
-    projectName,
-    updateProjectName,
-    chatMessages,
-    setChatMessages,
-    executionUrl,
-    setExecutionUrl,
-    projectFiles,
-    projectStats,
-    loading,
-    error,
-    setError   // por si algún componente quiere limpiar el error
-  }
-
   return (
-    <ProjectContext.Provider value={contextValue}>
+    <ProjectContext.Provider value={{
+      activeProjectId, setActiveProjectId, projectName, updateProjectName,
+      chatMessages, setChatMessages, executionUrl, setExecutionUrl,
+      projectFiles, projectStats, loading, error, setError
+    }}>
       {children}
     </ProjectContext.Provider>
   )
@@ -110,8 +76,6 @@ export function ProjectProvider({ children }) {
 
 export function useProject() {
   const ctx = useContext(ProjectContext)
-  if (!ctx) {
-    throw new Error('useProject debe usarse dentro de un ProjectProvider')
-  }
+  if (!ctx) throw new Error('useProject debe usarse dentro de un ProjectProvider')
   return ctx
 }

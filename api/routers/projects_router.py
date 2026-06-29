@@ -2,10 +2,11 @@ from fastapi import APIRouter, Query, HTTPException, Request, Body
 import subprocess
 import sys
 import json as json_module
+import shutil
 from pathlib import Path
 from typing import Optional
 
-router = APIRouter()
+router = APIRouter(prefix="/api")
 
 from core.project_manager import ProjectManager
 from core.executor import ProjectExecutor
@@ -55,8 +56,7 @@ def update_project_file(project_id: str, path: str = Query(...), content: str = 
     if not project_path:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     file_path = project_path / path
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content, encoding='utf-8')
     return {"status": "ok", "message": "Archivo actualizado"}
 
@@ -182,3 +182,11 @@ def list_project_docs(project_id: str):
         return {"files": []}
     files = [str(f.relative_to(docs_folder)) for f in docs_folder.glob("*.md")]
     return {"project_id": project_id, "files": sorted(files)}
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: str):
+    project_path = project_manager.get_project_path(project_id)
+    if not project_path:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    shutil.rmtree(project_path, ignore_errors=True)
+    return {"status": "ok", "message": f"Proyecto {project_id} eliminado"}

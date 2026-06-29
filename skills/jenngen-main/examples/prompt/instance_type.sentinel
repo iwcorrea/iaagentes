@@ -1,3 +1,0 @@
-restricting instance types for development and testing based on Environment tag
-only allow "t2.micro" and "t2.medium"
-only apply to "dev" and "test" tags

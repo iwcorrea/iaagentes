@@ -30,9 +30,7 @@ export default function ChatPanel() {
   const showToast = useCallback((message, type = 'info') => {
     const id = Date.now()
     setToasts(prev => [...prev, { id, message, type }])
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id))
-    }, 4000)
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000)
   }, [])
 
   // Verificar estado de conexión
@@ -117,15 +115,17 @@ export default function ChatPanel() {
       }
       const res = await api.post('/v1/chat/completions', { messages: updatedMessages }, { params })
       const reply = res.data.choices?.[0]?.message?.content || 'Sin respuesta'
-      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      const finalMessages = [...updatedMessages, { role: 'assistant', content: reply }]
+      setChatMessages(finalMessages)
 
       const projectIdMatch = reply.match(/Proyecto ID: (\w+)/)
       if (projectIdMatch && !activeProjectId) {
         setActiveProjectId(projectIdMatch[1])
         showToast('¡Proyecto creado!', 'success')
       }
+      // CORRECCIÓN: ruta con prefijo /api
       if (activeProjectId) {
-        api.post(`/projects/${activeProjectId}/chat`, { messages: [...updatedMessages, { role: 'assistant', content: reply }] }).catch(() => {})
+        api.post(`/api/projects/${activeProjectId}/chat`, { messages: finalMessages }).catch(() => {})
       }
     } catch (err) {
       showToast('Error al comunicarse con los agentes', 'error')

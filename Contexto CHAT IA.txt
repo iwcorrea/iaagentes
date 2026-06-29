@@ -1,0 +1,266 @@
+🧠 TRASPASO COMPLETO DEL PROYECTO AI-ECOSYSTEM
+Fecha: 28 de junio de 2026
+Usuario: Wilson Correa
+Repositorio: https://github.com/iwcorrea/iaagentes.git
+
+🎯 Objetivo principal
+Ecosistema de agentes CrewAI que genera aplicaciones web completas a partir de prompts en lenguaje natural, usando modelos gratuitos de OpenRouter u Ollama (local).
+
+📦 Estructura del proyecto
+text
+iaagentes/
+├── api/
+│   ├── main.py                          ← FastAPI (endpoint principal + configuración)
+│   └── routers/
+│       └── projects_router.py           ← Endpoints de proyectos (/api/projects/...)
+├── agents/                              ← Agentes CrewAI (director, backend, frontend, etc.)
+├── core/
+│   ├── architect_orchestrator.py        ← Orquestador principal (fases 1-5)
+│   ├── phases/
+│   │   ├── phase_generator.py           ← Fase 1: Generación (con extractor robusto e inyección de planes)
+│   │   ├── phase_auditor.py             ← Fase 2: Auditoría
+│   │   ├── phase_dependencies.py        ← Fase 3: Dependencias
+│   │   ├── phase_deploy.py              ← Fase 4: Tests y Despliegue (con linters)
+│   │   └── phase_repair.py              ← Fase 5: Reparación de issues de auditoría
+│   ├── agent_cache.py                   ← Caché de agentes (con soporte de skills)
+│   ├── project_memory.py                ← Memoria del proyecto (ProjectMemory)
+│   ├── document_manager.py              ← Gestor de documentos .md para guiar agentes
+│   ├── skill_registry.py                ← Registro de skills (carga .skill.json, .yaml, etc.)
+│   └── skill_loader.py                  ← Loaders polimórficos para skills
+├── tools/
+│   ├── jenngen_tool.py                  ← Integración con JennGen (usa LiteLLM)
+│   └── project_finalizer.py             ← Linters y git push automático
+├── skills/
+│   └── jenngen.skill.json               ← Skill que activa JennGen para frontend
+├── nfrontend/frontend/                  ← Panel React con Vite + Tailwind
+│   └── src/
+│       ├── api/axios.js                 ← Instancia de axios (baseURL: localhost:8000)
+│       ├── components/
+│       │   ├── ChatPanel.jsx            ← Chat principal
+│       │   ├── SkillsPanel.jsx          ← Panel de skills
+│       │   ├── DocsManager.jsx          ← Editor de documentos .md
+│       │   ├── ProjectList.jsx          ← Lista de proyectos con opciones (abrir, renombrar, eliminar)
+│       │   └── TeamPanel.jsx            ← Centro de control de agentes
+│       ├── context/ProjectContext.jsx   ← Contexto global de proyecto
+│       └── App.jsx                      ← App principal con pestañas
+├── projects/                            ← Proyectos generados (ej: geinftec/)
+├── start.ps1                            ← Script de arranque
+├── litellm_config.yaml                  ← Configuración de modelos gratuitos
+└── requirements.txt
+🚀 Estado actual (28/Jun/2026)
+Mejoras COMPLETADAS:
+
+✅ Orquestador modular con 5 fases (generación, auditoría, dependencias, tests, despliegue).
+
+✅ ProjectMemory con persistencia, decisiones de diseño, issues de auditoría y documentos .md.
+
+✅ Extractor de JSON ultra‑robusto con reparación automática de errores comunes.
+
+✅ Inyección automática de archivos solicitados en el plan (si el Director los omite).
+
+✅ Sistema de Skills polimórfico (carga .skill.json, .yaml, .py y directorios).
+
+✅ Integración con JennGen (vía LiteLLM) para mejorar frontend.
+
+✅ Panel React con pestañas: Chat, Proyectos (abrir/renombrar/eliminar), Skills, Docs (editor de .md), Equipo, Dashboard, Explorador de archivos con syntax highlighting.
+
+✅ Generación automática de project_brief.md al iniciar un proyecto.
+
+✅ Linters automáticos en fase de despliegue (flake8).
+
+✅ Endpoint /api/projects/{id}/finalize para linters y git push.
+
+✅ Sanitización de rutas para evitar escrituras fuera del workspace.
+
+✅ Reanudación automática tras errores (rate‑limit, timeout).
+
+Pendiente (no implementado):
+
+⚠️ El archivo styles.css de GEINFTEC puede haberse generado en una subcarpeta (src/); verificar en el Explorador.
+
+⚠️ Generar script.js para completar la landing page.
+
+⚠️ Mejorar el indicador de conexión en el ChatPanel (actualmente muestra "OpenRouter rate‑limit" incluso con modelo local).
+
+⚠️ Editor Markdown enriquecido en DocsManager.
+
+⚠️ Descarga de skills desde GitHub con actualización automática.
+
+⚠️ Paralelización real de agentes (no viable con modelos gratuitos actuales).
+
+🔧 Configuración actual de modelos
+yaml
+# litellm_config.yaml
+model_list:
+  - model_name: local-coder
+    litellm_params:
+      model: ollama/qwen2.5-coder:1.5b
+      api_base: http://localhost:11434
+      temperature: 0.0
+      max_tokens: 4096
+      supports_function_calling: false
+
+  - model_name: cloud-coder
+    litellm_params:
+      model: openrouter/nvidia/nemotron-3-super-120b-a12b:free
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0.0
+      max_tokens: 4096
+      fallbacks: [...]
+
+  - model_name: hibrido-coder
+    litellm_params:
+      model: ollama/qwen2.5-coder:1.5b
+      api_base: http://localhost:11434
+      temperature: 0.0
+      max_tokens: 4096
+      supports_function_calling: false
+      fallbacks: [...]
+📝 Próximo paso inmediato
+Verificar en el Explorador de la UI si styles.css se generó dentro de src/ o en la raíz de projects/geinftec/.
+
+Generar el archivo script.js con este prompt (proyecto geinftec, scope frontend):
+
+text
+Añadir funcionalidad JavaScript al proyecto geinftec.
+Creá UN SOLO archivo llamado script.js con:
+- Menú hamburguesa para móviles
+- Scroll suave
+- Validación simple del formulario de contacto
+- Animación de revelado al hacer scroll
+Respondé con un JSON que tenga una sola entrada: {"script.js": "código JavaScript completo aquí"}
+Probar la landing page abriendo index.html en el navegador y refinando iterativamente.
+
+🧠 Decisiones de diseño importantes
+Los agentes no usan tools en modo local (Ollama no soporta function calling). Se cargan dinámicamente según el modelo.
+
+El orquestador no salta la fase de generación cuando se modifica un proyecto existente (is_modification=True), asegurando que cada nuevo prompt regenere lo necesario.
+
+El PhaseGenerator inyecta automáticamente en el plan cualquier archivo mencionado en el prompt que el Director haya omitido.
+
+La caché de dependencias se persiste en dependency_cache.json y aprende de cada proyecto.
+
+Los endpoints de proyectos usan el prefijo /api/ y el frontend se conecta directamente al backend (http://localhost:8000) sin proxy de Vite.
+
+
+🔍 Resumen del estado actual y traspaso para el nuevo chat
+Problemas resueltos en esta sesión:
+
+Extractor de JSON ahora maneja backticks y formatos irregulares.
+
+Inyección automática de archivos en el plan cuando el Director los omite.
+
+La pestaña Explorador ya muestra los archivos del proyecto seleccionado.
+
+Lo que falta para completar GEINFTEC:
+
+Generar styles.css (volver a enviar el prompt del CSS; ahora debería funcionar).
+
+Generar script.js (prompt similar).
+
+Probar la landing abriendo index.html en el navegador.
+
+Mejoras futuras sugeridas:
+
+Integrar skills de GitHub para fortalecer agentes independientemente del modelo.
+
+Mejorar el indicador de conexión (actualmente muestra “OpenRouter rate‑limit” incluso con modelo local).
+
+Editor Markdown enriquecido en la pestaña Docs.
+
+🧠 Traspaso completo para el nuevo chat
+Copiá y pega este bloque completo en la nueva conversación:
+
+text
+📋 **CONTEXTO DEL PROYECTO AI-ECOSYSTEM**
+Fecha: 28 de junio de 2026
+Usuario: Wilson Correa
+Repositorio: https://github.com/iwcorrea/iaagentes.git
+
+🎯 **Objetivo**: Ecosistema de agentes CrewAI que genera aplicaciones web completas a partir de prompts, usando modelos gratuitos de OpenRouter u Ollama (local).
+
+📁 **Estructura clave**:
+- api/main.py, api/routers/projects_router.py
+- core/architect_orchestrator.py (orquestador de 5 fases)
+- core/phases/phase_generator.py (extractor ultra‑robusto + inyección de planes)
+- core/project_memory.py, core/document_manager.py
+- core/skill_registry.py, core/skill_loader.py (sistema de skills polimórfico)
+- tools/jenngen_tool.py (integración con JennGen vía LiteLLM)
+- nfrontend/frontend/src/ (panel React con pestañas: Chat, Proyectos, Skills, Docs, Equipo, Explorador)
+
+🚀 **Estado actual**:
+- Todas las pestañas de la UI funcionan correctamente (Proyectos, Skills, Docs, Equipo, Explorador, Chat).
+- Se está construyendo la landing page de **GEINFTEC S.A.S.** (proyecto `geinftec` en `projects/geinftec`).
+- `index.html` ya está generado. `frontend-design.md` existe en `docs/`.
+- **Falta generar `styles.css` y `script.js`**.
+- El modelo local usado es `qwen2.5-coder:1.5b` (Ollama). Los tokens gratuitos de OpenRouter están agotados hoy.
+
+⚠️ **Comportamiento reciente**:
+- El extractor de JSON a veces fallaba con backticks; se implementó `_repair_json_backticks`.
+- El Director a veces omitía archivos solicitados; se agregó inyección automática desde el prompt.
+- El proyecto estaba reanudando desde fases incorrectas; se modificó el orquestador para que siempre ejecute la fase 1 al modificar un proyecto.
+
+📝 **Próximo paso inmediato**:
+1. Con el proyecto `geinftec` abierto y scope **Frontend**, enviar este prompt exacto:
+   `Añadir estilos CSS al proyecto geinftec. Creá UN SOLO archivo llamado styles.css con TODOS los estilos necesarios. Seguí las especificaciones del documento frontend-design.md. El archivo debe incluir: - Variables CSS para los colores principales - Estilos completos para todos los componentes del index.html - Diseño responsive mobile-first - Animaciones suaves en hover y scroll. Respondé EXCLUSIVAMENTE con un JSON válido (sin markdown, sin backticks) que tenga una sola entrada: {"styles.css": "código CSS completo aquí"}`
+2. Luego, generar `script.js` con un prompt similar.
+3. Verificar los archivos en la pestaña **Explorador**.
+
+🔧 **Mejoras pendientes**:
+- Mejorar indicador de conexión en ChatPanel.
+- Editor Markdown enriquecido en DocsManager.
+- Descarga automática de skills desde GitHub.
+- Robustecer la generación de frontend con skills especializados.
+Con esto, el nuevo chat tendrá todo lo necesario para continuar exactamente donde lo dejamos.
+¿Querés que ajuste algo más antes de copiar el traspaso?
+
+
+
+
+📋 **TRASPASO DEL PROYECTO AI-ECOSYSTEM (28/06/2026)**
+Usuario: Wilson Correa
+Repositorio: https://github.com/iwcorrea/iaagentes.git
+
+🎯 **Estado actual del sistema**:
+- Ecosistema de agentes CrewAI que genera aplicaciones completas desde prompts.
+- Modelo local: Ollama con qwen2.5-coder:1.5b.
+- Interfaz React funcional con pestañas: Chat, Proyectos, Skills, Docs, Equipo, Explorador, Dashboard, Vista previa, Consola, Configuración.
+- Todas las pestañas operativas; la comunicación con la API usa el prefijo /api/ gracias a un interceptor de axios y proxy en Vite.
+- Se está construyendo la landing page de GEINFTEC S.A.S. (proyecto `geinftec` en `projects/geinftec`).
+- `index.html` y `styles.css` ya generados. `frontend-design.md` existe en `docs/`.
+- **Falta generar `script.js`** (el último intento falló por un problema de ruta `./` que ya fue corregido en _sanitize_path y _save_incremental).
+- El extractor de JSON a veces no puede parsear respuestas del modelo local; se agregó un fallback que usa el raw completo cuando solo hay un archivo esperado (aplicado en _robust_extract_files).
+
+⚠️ **Problemas conocidos pendientes**:
+1. La pestaña Docs no permite crear/editar archivos desde la interfaz (errores 404). Ya se corrigieron los endpoints, pero puede necesitar reinicio del ecosistema.
+2. El indicador de conexión muestra "OpenRouter rate‑limit" incluso con modelo local (no afecta la generación).
+3. El sistema de skills está cargado pero no se usa activamente porque los agentes no buscan skills por rol de forma automática. Sería ideal que el PhaseGenerator busque skills específicos para frontend/backend y los utilice.
+4. La generación de archivos a veces sobrescribe el HTML en lugar de crear solo el script.js. Se recomienda siempre indicar en el prompt "Creá UN SOLO archivo llamado script.js" y mantener el scope en Frontend.
+
+🔧 **Próximos pasos inmediatos**:
+1. Con el proyecto `geinftec` abierto, scope `frontend`, enviar el prompt de generación de script.js (el mismo de antes). Debería funcionar gracias a las correcciones de ruta y extracción.
+2. Verificar el archivo generado en el explorador de la UI.
+3. Probar la landing abriendo `index.html` en el navegador.
+4. Si se desea, integrar skills de GitHub (el sistema ya soporta la carga de archivos .skill.json, .yaml, etc. en la carpeta `skills/`).
+
+📁 **Archivos clave que han sido modificados recientemente**:
+- `core/phases/phase_generator.py`: _sanitize_path mejorado, _robust_extract_files con fallback a raw, _generate_code_for_files y _generate_frontend_with_jenngen pasan expected_keys.
+- `core/architect_orchestrator.py`: _save_incremental mejorado para manejar "./".
+- `components/ProjectExplorer.jsx`, `components/ChatPanel.jsx`, `context/ProjectContext.jsx`, `api/routers/projects_router.py`: correcciones de rutas a /api/.
+- `vite.config.js`: proxy para redirigir rutas antiguas.
+- `api/main.py`: endpoints con manejo de errores en /api/agents, /api/skills, etc.
+
+🧠 **Documentación para el nuevo chat**:
+Explicá que el sistema ya está listo para generar el script.js y completar la landing. Preguntá si quiere realizar alguna mejora adicional (como integrar skills para mejorar el frontend) o si desea revisar el código generado.
+
+
+
+
+
+
+
+
+
+
+
+

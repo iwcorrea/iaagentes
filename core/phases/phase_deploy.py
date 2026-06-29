@@ -1,20 +1,23 @@
 """
 Fase 4/5: Tests y Despliegue.
 Genera pruebas unitarias y archivos de infraestructura.
-Extracción robusta de archivos, tolerante a formatos variados del LLM.
+Ejecuta linters automáticos al final para asegurar calidad.
 """
 import re
+import json
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from crewai import Agent, Task, Crew
 from core.agent_cache import AgentCache
+from core.project_memory import ProjectMemory  # solo para type hint
 
 
 class PhaseDeploy:
-    def __init__(self, workspace_path: Path, agent_cache: AgentCache):
+    def __init__(self, workspace_path: Path, agent_cache: AgentCache, memory: Optional[ProjectMemory] = None):
         self.workspace_path = workspace_path
         self.agent_cache = agent_cache
+        self.memory = memory  # opcional, para registrar issues de linters
 
     def execute(self, manifest_context: str = "", stage: str = "tests") -> Dict[str, Any]:
         if stage == "tests":
@@ -38,7 +41,7 @@ class PhaseDeploy:
             description=(
                 f"Genera pruebas unitarias para los archivos del proyecto.\n{manifest_context}\n\n"
                 "Escribe los tests en archivos separados dentro de 'tests/'. "
-                "Para cada módulo importante, crea al menos un test de funcionamiento básico. "
+                "No sobrescribas los archivos originales. "
                 "Responde con un JSON donde cada clave sea la ruta del archivo de test y el valor sea el código fuente (string)."
             ),
             agent=tester,
@@ -52,15 +55,15 @@ class PhaseDeploy:
         files = self._extract_files_robust(raw)
 
         saved = {}
+        tests_dir = self.workspace_path / "tests"
         for file_path, content in files.items():
-            # content debe ser string
             if not isinstance(content, str):
                 print(f"⚠️ Valor inesperado para {file_path}: {type(content)}. Omitiendo.")
                 continue
-            full_path = self.workspace_path / file_path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content, encoding='utf-8')
-            saved[file_path] = content
+            test_path = tests_dir / file_path.replace("tests/", "").replace("testingTechCorp/", "").replace("landingTechCorp/", "")
+            test_path.parent.mkdir(parents=True, exist_ok=True)
+            test_path.write_text(content, encoding='utf-8')
+            saved[str(test_path.relative_to(self.workspace_path))] = content
 
         print(f"🧪 Archivos de tests guardados: {list(saved.keys())}")
         return {"files": saved}
@@ -105,17 +108,30 @@ class PhaseDeploy:
             saved[file_path] = content
 
         print(f"🚀 Archivos de despliegue guardados: {list(saved.keys())}")
+
+        # --- Linters automáticos (si hay memoria disponible) ---
+        if self.memory:
+            try:
+                from tools.project_finalizer import run_linters
+                lint_issues = run_linters(str(self.workspace_path))
+                for issue in lint_issues:
+                    self.memory.add_audit_issue(
+                        file=issue["file"],
+                        line=issue.get("line", 0),
+                        message=issue["message"],
+                        severity=issue.get("severity", "warning")
+                    )
+                print(f"🔍 Linters encontraron {len(lint_issues)} issues.")
+            except ImportError:
+                print("⚠️ Módulo tools.project_finalizer no encontrado. Omitiendo linters.")
+        else:
+            print("ℹ️ Memoria no disponible. Omitiendo linters.")
+
         return {"files": saved}
 
     def _extract_files_robust(self, raw_text: str) -> Dict[str, str]:
-        """
-        Extrae un mapeo ruta -> código de la salida del agente.
-        Soporta valores string directos o envueltos en objeto {"content": "..."}.
-        """
-        import json
         raw_text = raw_text.strip()
 
-        # Intento 1: JSON limpio
         try:
             data = json.loads(raw_text)
             if isinstance(data, dict):
@@ -123,7 +139,6 @@ class PhaseDeploy:
         except:
             pass
 
-        # Intento 2: JSON dentro de bloque de código
         match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw_text, re.DOTALL)
         if match:
             try:
@@ -133,7 +148,6 @@ class PhaseDeploy:
             except:
                 pass
 
-        # Intento 3: Patrones ruta:::código
         files = {}
         pattern = re.findall(
             r'["\']?([\w\-./\\]+\.\w+)["\']?\s*:::\s*(.*?)(?=\n\S+:::\s|\Z)',
@@ -144,30 +158,20 @@ class PhaseDeploy:
         return files
 
     def _flatten_content_values(self, data: Dict[str, Any]) -> Dict[str, str]:
-        """
-        Convierte valores que sean diccionarios con clave 'content' en el string contenido.
-        También puede haber un formato donde cada archivo tiene 'code' o 'content'.
-        """
         result = {}
         for key, value in data.items():
             if isinstance(value, str):
                 result[key] = value
             elif isinstance(value, dict):
-                # Priorizar 'content', luego 'code', luego el primer valor string
                 if 'content' in value:
                     result[key] = value['content']
                 elif 'code' in value:
                     result[key] = value['code']
                 else:
-                    # Tomar el primer valor de tipo string que encontremos
                     for v in value.values():
                         if isinstance(v, str):
                             result[key] = v
                             break
-                    else:
-                        # Si no encontramos string, ignorar
-                        print(f"⚠️ No se pudo extraer contenido de {key}: {value}")
             else:
-                # Convertir a string si es necesario (poco probable)
                 result[key] = str(value)
         return result

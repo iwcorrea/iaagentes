@@ -6,9 +6,17 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/v1': 'http://localhost:8000',
-      '/projects': 'http://localhost:8000',
-      '/system': 'http://localhost:8000'
+      // Redirigir cualquier ruta antigua /projects al nuevo /api/projects
+      '/projects': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/projects/, '/api/projects')
+      },
+      // Redirigir /api/agents, /api/skills, etc. (ya funciona, pero por completitud)
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true
+      }
     }
   }
 })

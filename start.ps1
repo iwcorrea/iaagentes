@@ -1,75 +1,34 @@
-# ============================================================
-# AI-ECOSYSTEM – Arranque centralizado (con opción de Ollama)
-# ============================================================
-Write-Host "🚀 Iniciando el ecosistema AI-ECOSYSTEM..." -ForegroundColor Cyan
+# start.ps1
+$ErrorActionPreference = "Stop"
 
-# 1. Activar entorno virtual
-$venvPath = ".\venv\Scripts\Activate.ps1"
-if (Test-Path $venvPath) {
-    Write-Host "📦 Activando entorno virtual..." -ForegroundColor Yellow
-    . $venvPath
-} else {
-    Write-Host "❌ No se encontró el entorno virtual en $venvPath" -ForegroundColor Red
-    exit 1
-}
+Write-Host "🚀 Iniciando el ecosistema AI-ECOSYSTEM..."
+Write-Host "📦 Activando entorno virtual..."
+& ".\venv\Scripts\Activate.ps1"
 
-# 2. Preguntar si desea iniciar Ollama
+# Preguntar si se inicia Ollama
 $ollamaChoice = Read-Host "¿Iniciar Ollama (modelo local)? (s/n)"
 if ($ollamaChoice -eq "s") {
-    Write-Host "🦙 Verificando Ollama..." -ForegroundColor Yellow
-    $ollamaRunning = Get-Process -Name "ollama" -ErrorAction SilentlyContinue
-    if (-not $ollamaRunning) {
-        Write-Host "🦙 Iniciando Ollama (modelo local)..." -ForegroundColor Yellow
-        Start-Process -NoNewWindow -FilePath "ollama" -ArgumentList "serve"
-        Start-Sleep -Seconds 3
-        Write-Host "✅ Ollama iniciado." -ForegroundColor Green
-    } else {
-        Write-Host "✅ Ollama ya está corriendo." -ForegroundColor Green
-    }
+    Write-Host "🦙 Iniciando Ollama..."
+    Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
 } else {
-    Write-Host "🦙 Ollama no se iniciará (usando solo nube o híbrido si es necesario)." -ForegroundColor DarkYellow
+    Write-Host "🦙 Ollama no se iniciará."
 }
 
-# 3. Iniciar LiteLLM en segundo plano
-Write-Host "🔁 Iniciando proxy LiteLLM (puerto 4000)..." -ForegroundColor Yellow
-$litellmLog = ".\logs\litellm.log"
-New-Item -ItemType Directory -Force -Path ".\logs" | Out-Null
-$litellmJob = Start-Job -Name "LiteLLM" -ScriptBlock {
-    param($logFile)
-    & litellm --config litellm_config.yaml --port 4000 *>> $logFile
-} -ArgumentList $litellmLog
+# Establecer raíz del proyecto para el backend
+$env:AI_ECOSYSTEM_ROOT = (Get-Location).Path
+Write-Host "📂 Raíz del proyecto: $env:AI_ECOSYSTEM_ROOT"
 
-# 4. Iniciar Frontend React en segundo plano
-Write-Host "🎨 Iniciando Frontend React (puerto 5173)..." -ForegroundColor Yellow
-$frontendPath = ".\nfrontend\frontend"
-if (Test-Path "$frontendPath\package.json") {
-    $frontendLog = ".\logs\frontend.log"
-    $frontendJob = Start-Job -Name "FrontendReact" -ScriptBlock {
-        param($path, $logFile)
-        Set-Location $path
-        if (-not (Test-Path "node_modules")) {
-            Write-Host "📦 Instalando dependencias del frontend..." *>> $logFile
-            npm install *>> $logFile
-        }
-        npm run dev *>> $logFile
-    } -ArgumentList (Resolve-Path $frontendPath).Path, (Join-Path (Get-Location) "logs\frontend.log")
-}
+# Iniciar proxy LiteLLM
+Write-Host "🔁 Iniciando proxy LiteLLM (puerto 4000)..."
+Start-Process "litellm" -ArgumentList "--config litellm_config.yaml" -WindowStyle Minimized
 
-# 5. Iniciar API principal
-Write-Host "🌐 Iniciando API principal (puerto 8000)..." -ForegroundColor Yellow
-try {
-    uvicorn api.main:app --host 0.0.0.0 --port 8000
-} catch {
-    Write-Host "❌ Error al iniciar la API." -ForegroundColor Red
-} finally {
-    if ($litellmJob) {
-        Stop-Job -Name "LiteLLM" -ErrorAction SilentlyContinue
-        Remove-Job -Name "LiteLLM" -ErrorAction SilentlyContinue
-    }
-    if ($frontendJob) {
-        Stop-Job -Name "FrontendReact" -ErrorAction SilentlyContinue
-        Remove-Job -Name "FrontendReact" -ErrorAction SilentlyContinue
-    }
-}
+# Iniciar frontend React con npm usando cmd.exe (evita ambigüedad de PowerShell)
+Write-Host "🎨 Iniciando Frontend React (puerto 5173)..."
+$frontendDir = Join-Path (Get-Location) "nfrontend\frontend"
+Start-Process "cmd.exe" -ArgumentList "/c npm run dev" -WorkingDirectory $frontendDir -WindowStyle Minimized
 
-Write-Host "✅ Ecosistema detenido." -ForegroundColor Cyan
+# Iniciar API principal
+Write-Host "🌐 Iniciando API principal (puerto 8000)..."
+uvicorn api.main:app --reload --port 8000 --host 127.0.0.1
+
+Write-Host "✅ Ecosistema detenido."

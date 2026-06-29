@@ -12,6 +12,7 @@ import sys
 import json as json_module
 import shutil
 import requests
+import re
 from typing import Optional
 from pathlib import Path
 
@@ -101,8 +102,11 @@ def list_models():
 
 @app.get("/api/progress")
 def get_progress_only():
-    from core.agent_status import get_progress
-    return {"progress": get_progress()}
+    try:
+        from core.agent_status import get_progress
+        return {"progress": get_progress()}
+    except Exception as e:
+        return {"progress": 0, "error": str(e)}
 
 @app.post("/v1/chat/completions")
 def chat_completions(
@@ -125,9 +129,7 @@ def chat_completions(
         actual_model = model_map.get(brain_model, "local-coder")
         os.environ["CURRENT_BRAIN_MODEL"] = actual_model
 
-        # 🔧 Configurar variables de entorno para CrewAI según el modelo
         if actual_model == "local-coder":
-            # Verificar que Ollama esté vivo
             try:
                 r = requests.get("http://localhost:11434", timeout=3)
                 if r.status_code != 200:
@@ -159,18 +161,24 @@ def chat_completions(
             if mod.startswith("agents.") or mod == "core.meta_agent":
                 del sys.modules[mod]
 
+        project_name = None
+        name_match = re.search(r"Crear proyecto\s+['\"](.+?)['\"]", user_prompt, re.IGNORECASE)
+        if name_match:
+            project_name = name_match.group(1).strip()
+            project_name = re.sub(r'[<>:"/\\|?*]', '', project_name)
+
         is_modification = False
         if project_id:
             existing = project_manager.get_project_path(project_id)
             if existing:
                 project_path = existing
                 is_modification = True
-                final_project_id = project_id
+                final_project_id = existing.name
             else:
-                project_path = project_manager.create_project(project_id)
+                project_path = project_manager.create_project(project_name or project_id)
                 final_project_id = project_path.name
         else:
-            project_path = project_manager.create_project(project_id)
+            project_path = project_manager.create_project(project_name)
             final_project_id = project_path.name
 
         if intent == "create_file":
@@ -181,6 +189,7 @@ def chat_completions(
             orchestrator = AutonomousArchitectOrchestrator(workspace_path=str(project_path))
             final_text = orchestrator.orchestrate_project(
                 user_prompt,
+                project_name=final_project_id,
                 is_modification=is_modification,
                 scope=scope,
                 mode=mode,
@@ -253,26 +262,50 @@ def create_guided_project(data: dict):
 
 @app.get("/api/skills")
 def get_skills():
-    from core.skill_registry import SkillRegistry
-    registry = SkillRegistry()
     skills_list = []
-    for name, skill in registry.skills.items():
-        skills_list.append({
-            "name": name,
-            "role": skill.get("role", ""),
-            "goal": skill.get("goal", ""),
-            "tags": skill.get("tags", []),
-        })
-    return {"skills": skills_list}
+    debug_info = []
+    try:
+        root = os.environ.get("AI_ECOSYSTEM_ROOT", "")
+        if root:
+            skills_dir = Path(root) / "skills"
+        else:
+            skills_dir = Path(__file__).resolve().parent.parent / "skills"
+        debug_info.append(f"Ruta skills: {skills_dir}")
+
+        if not skills_dir.exists():
+            debug_info.append("La carpeta skills no existe.")
+            return {"skills": skills_list, "debug": debug_info}
+
+        for file_path in skills_dir.glob("*.skill.json"):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json_module.load(f)
+                if "name" in data:
+                    skills_list.append({
+                        "name": data["name"],
+                        "role": data.get("role", ""),
+                        "goal": data.get("goal", ""),
+                        "tags": data.get("tags", []),
+                    })
+                    debug_info.append(f"Skill cargado: {data['name']}")
+            except Exception as e:
+                debug_info.append(f"Error al leer {file_path.name}: {str(e)}")
+
+        return {"skills": skills_list, "debug": debug_info}
+    except Exception as e:
+        return {"skills": [], "error": str(e), "debug": debug_info}
 
 @app.get("/api/settings")
 def get_settings():
-    settings = load_settings()
-    from core.agent_scanner import ComponentScanner
-    scanner = ComponentScanner()
-    settings["available_agents"] = scanner.scan_agents()
-    settings["available_tools"] = scanner.scan_tools()
-    return settings
+    try:
+        settings = load_settings()
+        from core.agent_scanner import ComponentScanner
+        scanner = ComponentScanner()
+        settings["available_agents"] = scanner.scan_agents()
+        settings["available_tools"] = scanner.scan_tools()
+        return settings
+    except Exception as e:
+        return {"error": str(e), "available_agents": [], "available_tools": []}
 
 @app.put("/api/settings")
 def update_settings(settings: dict):
@@ -285,9 +318,12 @@ def update_settings(settings: dict):
 
 @app.get("/system/dependency-cache-stats")
 def dependency_cache_stats():
-    from core.dependency_cache import DependencyCache
-    cache = DependencyCache()
-    return cache.stats()
+    try:
+        from core.dependency_cache import DependencyCache
+        cache = DependencyCache()
+        return cache.stats()
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post("/system/propose-improvement")
 def propose_improvement(proposal: ImprovementProposal):
@@ -386,18 +422,21 @@ def get_quality_metrics(project_id: Optional[str] = Query(None)):
 
 @app.get("/api/agents")
 def get_agents_info():
-    from core.agent_scanner import ComponentScanner
-    from core.agent_status import get_status, get_progress
-    scanner = ComponentScanner()
-    data = scanner.get_full_data()
-    live = get_status()
-    for team in data.get("teams", []):
-        for agent in team.get("agents", []):
-            if agent["name"] in live:
-                agent["status"] = live[agent["name"]]["status"]
-                agent["emoji"] = live[agent["name"]]["emoji"]
-                agent["current_task"] = live[agent["name"]].get("current_task", "")
-    return {"teams": data["teams"], "tools": data["tools"], "core_modules": data["core_modules"], "progress": get_progress()}
+    try:
+        from core.agent_scanner import ComponentScanner
+        from core.agent_status import get_status, get_progress
+        scanner = ComponentScanner()
+        data = scanner.get_full_data()
+        live = get_status()
+        for team in data.get("teams", []):
+            for agent in team.get("agents", []):
+                if agent["name"] in live:
+                    agent["status"] = live[agent["name"]]["status"]
+                    agent["emoji"] = live[agent["name"]]["emoji"]
+                    agent["current_task"] = live[agent["name"]].get("current_task", "")
+        return {"teams": data["teams"], "tools": data["tools"], "core_modules": data["core_modules"], "progress": get_progress()}
+    except Exception as e:
+        return {"teams": [], "tools": [], "core_modules": [], "progress": 0, "error": str(e)}
 
 @app.post("/system/cleanup-improvements")
 def cleanup_improvements():

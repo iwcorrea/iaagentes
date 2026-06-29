@@ -1,3 +1,0 @@
-- create a public s3 website
-- jenngen-website bucket
-- with cloudfront distribution

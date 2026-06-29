@@ -1,3 +1,0 @@
-- rds database
-- rds database subnet group
-- VPC input variable

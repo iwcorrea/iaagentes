@@ -1,172 +1,119 @@
-# 🤖 AI-ECOSYSTEM — Arquitecto Autónomo de Software
+# 🧠 AI-ECOSYSTEM — Arquitecto Autónomo de Software
 
-**Creado por Wilson Correa**
+Ecosistema de agentes CrewAI que genera aplicaciones web completas a partir de prompts en lenguaje natural, usando modelos gratuitos de OpenRouter u Ollama (local). Todo funciona con coste cero.
 
-Un ecosistema de agentes de inteligencia artificial que genera aplicaciones web completas a partir de descripciones en lenguaje natural.  
-Todo funciona con modelos gratuitos (OpenRouter) y/o un modelo local (Ollama), sin coste de API.
+## 🚀 Estado actual (27/Jun/2026)
 
----
+### ✅ Mejoras completadas
+- **Orquestador modular con 5 fases:** generación, auditoría, dependencias, tests, despliegue.
+- **ProjectMemory:** persistencia del estado del proyecto, decisiones de diseño, issues de auditoría, y manifiesto de archivos con hash para evitar alucinaciones.
+- **Documentos `.md` por proyecto:** los agentes reciben instrucciones específicas desde `docs/` en cada proyecto (frontmatter YAML con target_agents, priority, tags).
+- **Sistema de Skills polimórfico:** carga skills desde archivos `.skill.json`, `.yaml`, `.py` y directorios (compatible con repos de la comunidad).
+- **Integración con JennGen:** el skill `jenngen` convierte pseudocódigo en HTML/CSS/JS real usando modelos locales o de OpenAI.
+- **Extracción robusta de código:** el extractor JSON balanceado captura código incluso cuando el LLM usa backticks o formato irregular.
+- **Panel React moderno:** chat persistente, selector de modelo (local/nube/híbrido), barra de progreso granular, explorador de archivos con syntax highlighting, gestor de documentos Markdown.
+- **Validación sintáctica automática:** descarta archivos Python con errores y permite reintentar.
+- **Reanudación automática:** si una fase falla (por rate‑limit o timeout), el estado se guarda y se puede continuar más tarde.
 
-## 🧠 ¿Qué hace?
+### 🔧 En desarrollo
+- **Editor Markdown enriquecido** para la pestaña Docs.
+- **Mejora de UI:** vista previa de código con resaltado, panel de configuración avanzado.
+- **Descarga de skills desde GitHub** con actualización automática.
 
-Escribí algo como *"Crear una app de cobro diario con FastAPI y React"* y el sistema:
+## 🧩 Estructura del proyecto
 
-1. **Valida el prompt** para evitar ambigüedades.
-2. **Planifica** la arquitectura (Director IA).
-3. **Genera el backend** en Python/FastAPI (Code Generator).
-4. **Genera el frontend** en React/Tailwind (Frontend Designer).
-5. **Audita el código** buscando errores y vulnerabilidades (QA Auditor).
-6. **Repara automáticamente** los problemas encontrados (Repair Agent).
-7. **Gestiona dependencias** generando `requirements.txt` y `package.json` (Dependency Manager).
-8. **Revisa estáticamente** la integridad del código (CodeReviewer).
-9. **Limpia el código** con black, isort y bandit.
-10. **Propone mejoras** continuas (MetaAgent).
+```text
+iaagentes/
+├── api/                  # FastAPI (endpoint principal + routers)
+├── agents/               # Agentes CrewAI (director, backend, frontend, etc.)
+├── core/                 # Orquestador, fases, memoria, skills, loaders
+├── tools/                # Herramientas externas (Jenngen, etc.)
+├── skills/               # Skills descargables o locales (.skill.json)
+├── nfrontend/frontend/   # Panel React con Vite + Tailwind
+├── tests/                # Pruebas unitarias
+├── litellm_config.yaml   # Configuración de modelos gratuitos
+├── start.ps1             # Script de arranque
+└── requirements.txt
+🛠️ Configuración rápida
+Cloná el repositorio
 
-Todo el proceso es automático y supervisado por el **Orchestrator**, que muestra el progreso en tiempo real.
-
----
-
-## 🚀 Arranque rápido
-
-### Requisitos
-- Python 3.10+
-- Node.js 18+
-- Git
-- (Opcional) Ollama para modelo local
-
-### Instalación
-
-```bash
-# Clonar el repositorio
+bash
 git clone https://github.com/iwcorrea/iaagentes.git
 cd iaagentes
+Creá y activá el entorno virtual
 
-# Crear entorno virtual
+bash
 python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/Mac
-
-# Instalar dependencias
+.\venv\Scripts\Activate.ps1  # Windows
 pip install -r requirements.txt
+Iniciá el ecosistema
 
-# Configurar variables de entorno (crear archivo .env)
-echo OPENROUTER_API_KEY=tu_clave_de_openrouter > .env
+bash
+.\start.ps1
+Respondé s si querés usar el modelo local (Ollama) o n si solo vas a usar OpenRouter.
 
-# Iniciar todo con un solo comando
-.\start.ps1  # Windows
-Luego abrí http://localhost:5173 en tu navegador.
+Abrí el frontend en http://localhost:5173
 
-🧰 Estructura del proyecto
+🧪 Cómo generar un proyecto
+Escribí tu prompt en el chat. Ejemplo:
+
 text
-iaagentes/
-├── api/                    # Servidor FastAPI
-├── agents/                 # Agentes CrewAI (Director, Backend, Frontend, QA, Repair, Dependency)
-├── core/                   # Orquestador, memoria, ejecutor, validador, auditor, revisor
-├── workflows/              # Flujo de trabajo CrewAI
-├── tools/                  # Herramientas de los agentes
-├── memory/                 # Memoria vectorial (ChromaDB)
-├── nfrontend/frontend/     # Panel de control React
-├── projects/               # Proyectos generados por los agentes
-├── start.ps1               # Script de arranque (Windows)
-├── start.sh                # Script de arranque (Linux/Mac)
-└── settings.json           # Configuración del sistema
-🎛️ Panel de control
-El panel React incluye:
+Crear proyecto "TestBackend" con:
+- FastAPI + SQLite
+- Modelo Producto (id, nombre, precio)
+- CRUD básico en router /productos
+- main.py, database.py, requirements.txt
+Solo backend, sin frontend, sin tests.
+Seleccioná el modelo deseado (Local, Nube o Híbrido).
 
-Chat: crear o modificar proyectos conversando con los agentes.
+Presioná Crear. El progreso se mostrará en tiempo real.
 
-Proyectos: lista de proyectos generados con nombres editables.
+Los archivos aparecerán en la pestaña Explorador y en projects/TestBackend/.
 
-Equipo: visualización en tiempo real del estado de cada agente.
+🧠 Skills
+Colocá archivos .skill.json en la carpeta skills/.
 
-Vista previa: previsualización del proyecto ejecutándose.
+Ejemplo: skills/mi-skill.skill.json
 
-Consola: salida de la ejecución del backend.
+json
+{
+  "name": "mi-skill",
+  "role": "backend",
+  "goal": "Generar código FastAPI optimizado",
+  "backstory": "Experto en FastAPI y SQLAlchemy..."
+}
+La pestaña Skills los listará automáticamente.
 
-Configuración: ajuste de modelos, agentes y equipos sin tocar código.
+Si un skill tiene el mismo nombre o rol que un agente, se usará en lugar del agente por defecto.
 
-Asistente guiado: creación de proyectos con preguntas personalizadas por tipo de app.
+El skill jenngen (incluido) mejora la generación de frontend usando la herramienta JennGen.
 
-🧠 Modos de cerebro
-El sistema soporta tres modos seleccionables desde la interfaz:
+📚 Documentos por proyecto
+Cada proyecto puede tener una carpeta docs/ con archivos .md que guían a los agentes.
+Ejemplo (docs/backend-instructions.md):
 
-Modo	Descripción
-🦙 Local	Usa Ollama con qwen2.5-coder:1.5b. Sin límites, sin internet.
-☁️ Nube	Usa OpenRouter con modelos gratuitos. Requiere conexión.
-🔀 Híbrido	Primero intenta con Ollama; si falla, automáticamente usa la nube.
-El modo se selecciona con un selector en el chat antes de enviar el prompt.
+markdown
+---
+target_agents: [backend]
+priority: high
+---
 
-🆓 Modelos gratuitos utilizados (modo Nube)
-El sistema usa modelos gratuitos a través de OpenRouter, gestionados por LiteLLM:
+## Instrucciones para el Backend
+- Usá FastAPI con SQLAlchemy y SQLite.
+- Implementá autenticación JWT con hashlib.
+La pestaña Docs permite editar estos archivos directamente en la interfaz.
 
-NVIDIA Nemotron Super 120B
-
-Google Gemma 4 31B
-
-Qwen 3 Coder
-
-Meta Llama 3.3 70B
-
-OpenAI GPT-OSS 120B
-
-Nous Hermes 3 Llama 405B
-
-El proxy LiteLLM maneja automáticamente los fallbacks si un modelo está saturado.
-
-📡 Endpoints principales de la API
-Método	Ruta	Descripción
-POST	/v1/chat/completions	Enviar prompt y recibir respuesta de los agentes
-POST	/api/validate-prompt	Validar un prompt sin generar código
-GET	/api/guided-templates	Listar tipos de proyectos guiados
-POST	/api/create-guided-project	Crear proyecto con asistente guiado
-GET	/projects	Listar proyectos generados
-GET	/api/agents	Obtener estado y progreso de los agentes
-GET	/api/settings	Obtener configuración del sistema
-PUT	/api/settings	Actualizar configuración
-🧪 Asistente guiado de proyectos
-El panel incluye un asistente que hace preguntas según el tipo de proyecto:
-
-App Web Full-Stack
-
-E-Commerce
-
-API REST
-
-Panel de Administración
-
-Landing Page
-
-Responde las preguntas, previsualizá el prompt generado y los agentes lo construirán con estructura profesional.
-
-🔍 Validaciones automáticas
-El sistema incluye múltiples capas de validación para garantizar la calidad del código generado:
-
-PromptIntegrity: valida el prompt antes de enviarlo.
-
-PlanValidator: verifica que el plan JSON del Director sea completo.
-
-ProjectAuditor: audita la estructura del proyecto generado.
-
-CodeReviewer: revisa estáticamente el backend (routers, schemas, imports).
-
-Black + isort + Bandit: formateo, orden y seguridad automáticos.
-
-🛡️ Protecciones
-Backup automático antes de cada modificación.
-
-Timeout inteligente por agente (90s).
-
-Reintentos automáticos ante errores de permisos.
-
-Detección de límite diario de OpenRouter (detiene las reparaciones).
-
-Compresión de contexto para no exceder límites de tokens.
-
-Bloqueo de suspensión del PC durante la generación.
-
-🤝 Contribuciones
-Este proyecto está en desarrollo activo.
-Si querés contribuir, abrí un issue o un pull request en el repositorio.
-
+⚙️ Modelos disponibles
+Modelo	Descripción
+local-coder	Ollama local (qwen2.5-coder:1.5b)
+cloud-coder	OpenRouter gratuito (Nemotron 120B, Gemma, etc.)
+hibrido-coder	Local + fallback a nube
 📄 Licencia
 MIT
+
+text
+
+---
+
+Probá el nuevo `SkillsPanel.jsx` y fijate qué aparece en "Respuesta del servidor".  
+Con eso arreglamos el problema de skills y luego seguimos con JennGen y el editor Markdown enriquecido.

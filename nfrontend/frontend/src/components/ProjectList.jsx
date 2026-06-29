@@ -1,127 +1,140 @@
 import { useState, useEffect } from 'react'
 import api from '../api/axios'
 import { useProject } from '../context/ProjectContext'
-import GuidedProjectCreator from './GuidedProjectCreator'
 
 export default function ProjectList() {
   const [projects, setProjects] = useState([])
-  const [showGuided, setShowGuided] = useState(false)
-  const [deleteConfirm, setDeleteConfirm] = useState(null)
-  const { setActiveProjectId } = useProject()
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [editing, setEditing] = useState(null)
+  const [newName, setNewName] = useState('')
+  const { activeProjectId, setActiveProjectId } = useProject()
 
-  const load = async () => {
+  const fetchProjects = async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const res = await api.get('/projects')
+      const res = await api.get('/api/projects')
       setProjects(res.data.projects || [])
     } catch (err) {
-      console.error('Error al cargar proyectos:', err)
+      setError('No se pudieron cargar los proyectos.')
+      console.error(err)
+    } finally {
+      setLoading(false)
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    fetchProjects()
+  }, [])
 
-  const handleDelete = async (id) => {
-    // Por ahora solo ocultamos (no hay endpoint DELETE)
-    setProjects(prev => prev.filter(p => p.id !== id))
-    setDeleteConfirm(null)
+  const handleOpenProject = (id) => {
+    setActiveProjectId(id)
   }
 
-  const handleProjectCreated = (projectId) => {
-    setActiveProjectId(projectId)
-    load()
+  const handleRename = async (id) => {
+    if (!newName.trim()) return
+    try {
+      await api.put(`/api/projects/${id}/name`, { name: newName.trim() })
+      setProjects(prev => prev.map(p => p.id === id ? { ...p, name: newName.trim() } : p))
+      setEditing(null)
+      setNewName('')
+    } catch (err) {
+      alert('Error al renombrar el proyecto.')
+    }
+  }
+
+  const handleDelete = async (id) => {
+    if (!confirm('¿Eliminar este proyecto y toda su información? Esta acción no se puede deshacer.')) return
+    try {
+      await api.delete(`/api/projects/${id}`)
+      setProjects(prev => prev.filter(p => p.id !== id))
+      if (activeProjectId === id) setActiveProjectId(null)
+    } catch (err) {
+      alert('Error al eliminar el proyecto.')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400"></div>
+        <span className="ml-3 text-gray-400">Cargando proyectos...</span>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center">
+        <p className="text-red-400 mb-3">{error}</p>
+        <button onClick={fetchProjects} className="bg-cyan-600/20 text-cyan-400 px-4 py-2 rounded-lg hover:bg-cyan-600/30 transition">
+          Reintentar
+        </button>
+      </div>
+    )
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-3xl font-bold text-gray-100">📁 Proyectos</h2>
-          <p className="text-gray-400 text-sm mt-1">Administrá tus proyectos generados por IA</p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => setShowGuided(true)}
-            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white px-5 py-2.5 rounded-xl font-medium shadow-lg transition-all duration-200 flex items-center gap-2"
-          >
-            <span className="text-lg">✨</span> Proyecto Guiado
-          </button>
-          <button
-            onClick={load}
-            className="bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2.5 rounded-xl text-sm transition"
-            title="Refrescar lista"
-          >
-            🔄
-          </button>
-        </div>
+    <div className="p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold text-white">📁 Proyectos</h2>
+        <span className="text-sm text-gray-400">{projects.length} proyecto(s)</span>
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {projects.length === 0 ? (
-          <div className="col-span-full flex flex-col items-center justify-center py-20 text-gray-500">
-            <div className="text-7xl mb-4">📭</div>
-            <p className="text-xl font-medium text-gray-400">No hay proyectos todavía</p>
-            <p className="text-sm mt-2 text-gray-600">
-              Creá uno nuevo desde el <span className="text-purple-400 font-semibold">Chat</span> o usando el <span className="text-purple-400 font-semibold">Proyecto Guiado</span>.
-            </p>
-          </div>
-        ) : (
-          projects.map(project => (
+      {projects.length === 0 ? (
+        <p className="text-gray-500">No hay proyectos todavía. Creá uno desde el chat.</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {projects.map(proj => (
             <div
-              key={project.id}
-              className="group bg-gray-800/40 backdrop-blur-sm border border-gray-700/50 rounded-2xl p-5 flex flex-col gap-4 transition-all duration-300 hover:border-blue-500/40 hover:shadow-xl hover:shadow-blue-500/5"
+              key={proj.id}
+              className={`relative bg-gray-800/60 border rounded-xl p-5 transition-all duration-300 hover:shadow-lg group ${
+                activeProjectId === proj.id
+                  ? 'border-cyan-500 shadow-cyan-500/20'
+                  : 'border-gray-700/50 hover:border-cyan-500/40'
+              }`}
             >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-xl flex items-center justify-center text-xl border border-blue-500/20">
-                    📁
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-200 group-hover:text-blue-300 transition-colors truncate max-w-[180px]">
-                      {project.name}
-                    </h3>
-                    <p className="text-xs text-gray-500 font-mono mt-0.5">{project.id}</p>
-                  </div>
+              <div className="flex justify-between items-start mb-3">
+                {editing === proj.id ? (
+                  <input
+                    type="text"
+                    value={newName}
+                    onChange={e => setNewName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleRename(proj.id)}
+                    onBlur={() => setEditing(null)}
+                    autoFocus
+                    className="bg-gray-700 text-white px-2 py-1 rounded text-sm w-full"
+                  />
+                ) : (
+                  <h3 className="font-bold text-lg text-white truncate pr-12">{proj.name}</h3>
+                )}
+                <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setEditing(proj.id); setNewName(proj.name) }}
+                    className="text-gray-400 hover:text-cyan-400 text-sm p-1 rounded"
+                    title="Renombrar"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDelete(proj.id) }}
+                    className="text-gray-400 hover:text-red-400 text-sm p-1 rounded"
+                    title="Eliminar"
+                  >
+                    🗑️
+                  </button>
                 </div>
-                <button
-                  onClick={() => setDeleteConfirm(project.id)}
-                  className="text-gray-600 hover:text-red-400 transition opacity-0 group-hover:opacity-100"
-                  title="Eliminar proyecto"
-                >
-                  🗑️
-                </button>
               </div>
-              <div className="flex gap-3 mt-auto">
-                <button
-                  onClick={() => setActiveProjectId(project.id)}
-                  className="flex-1 bg-blue-600/20 text-blue-300 border border-blue-500/30 hover:bg-blue-600/30 text-sm py-2.5 rounded-xl font-medium transition"
-                >
-                  Abrir
-                </button>
-              </div>
+              <p className="text-xs text-gray-500 font-mono mb-4">ID: {proj.id}</p>
+              <button
+                onClick={() => handleOpenProject(proj.id)}
+                className="w-full bg-cyan-600/20 text-cyan-400 py-2 rounded-lg hover:bg-cyan-600/30 transition text-sm font-medium"
+              >
+                {activeProjectId === proj.id ? '✓ Proyecto activo' : 'Abrir proyecto'}
+              </button>
             </div>
-          ))
-        )}
-      </div>
-
-      {/* Modal de confirmación de eliminación */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 max-w-md text-center">
-            <p className="text-gray-200 mb-4">¿Eliminar el proyecto <span className="font-mono text-blue-400">{deleteConfirm}</span>?</p>
-            <p className="text-sm text-gray-400 mb-6">Esta acción no se puede deshacer.</p>
-            <div className="flex gap-4 justify-center">
-              <button onClick={() => setDeleteConfirm(null)} className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">Cancelar</button>
-              <button onClick={() => handleDelete(deleteConfirm)} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg">Eliminar</button>
-            </div>
-          </div>
+          ))}
         </div>
-      )}
-
-      {showGuided && (
-        <GuidedProjectCreator
-          onClose={() => setShowGuided(false)}
-          onProjectCreated={handleProjectCreated}
-        />
       )}
     </div>
   )

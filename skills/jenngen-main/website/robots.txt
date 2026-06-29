@@ -1,1 +1,0 @@
-allow all except /private and .jenngen

@@ -1,10 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import api from '../api/axios'
 
-/* ------------------------------------------------------------------ */
-/*  Subcomponentes (extraídos para claridad y React.memo)             */
-/* ------------------------------------------------------------------ */
-
 const AgentCard = React.memo(({ agent }) => (
   <div className="bg-gray-800/60 backdrop-blur-sm border border-gray-700/50 rounded-2xl p-5 flex flex-col gap-4 transition-all duration-300 hover:border-cyan-500/40 hover:shadow-lg hover:shadow-cyan-500/5 group">
     <div className="flex items-center gap-4">
@@ -84,10 +80,6 @@ const ItemRow = React.memo(({ item, icon }) => (
   </div>
 ))
 
-/* ------------------------------------------------------------------ */
-/*  Componente principal                                              */
-/* ------------------------------------------------------------------ */
-
 export default function TeamPanel() {
   const [teams, setTeams] = useState([])
   const [tools, setTools] = useState([])
@@ -104,7 +96,6 @@ export default function TeamPanel() {
       setCoreModules(res.data.core_modules || [])
       setError(null)
     } catch (err) {
-      console.error('Error al cargar datos del equipo:', err)
       setError('No se pudieron cargar los datos del centro de control.')
     } finally {
       setLoading(false)
@@ -146,7 +137,6 @@ export default function TeamPanel() {
 
   return (
     <div className="p-6 space-y-8">
-      {/* Cabecera */}
       <div>
         <h2 className="text-3xl font-bold text-white flex items-center gap-3">
           <span className="bg-gradient-to-r from-cyan-500 to-blue-500 bg-clip-text text-transparent">
@@ -159,7 +149,6 @@ export default function TeamPanel() {
         <p className="text-gray-400 mt-1">Supervisá el estado de los agentes, herramientas y módulos del ecosistema.</p>
       </div>
 
-      {/* Agentes */}
       <div>
         <h3 className="text-xl font-bold text-gray-200 mb-4 flex items-center gap-2">
           <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
@@ -172,7 +161,6 @@ export default function TeamPanel() {
         </div>
       </div>
 
-      {/* Herramientas y Módulos (secciones colapsables) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <CollapsibleSection
           title="Herramientas"

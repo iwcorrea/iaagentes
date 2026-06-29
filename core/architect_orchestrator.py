@@ -1,13 +1,11 @@
-"""
-Orquestador principal del ecosistema.
-Utiliza ProjectMemory para persistencia y soporta skills externos.
-"""
 import os
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
 
 from core.project_memory import ProjectMemory
+from core.document_manager import DocumentManager
 from core.phases.phase_generator import PhaseGenerator
 from core.phases.phase_auditor import PhaseAuditor
 from core.phases.phase_dependencies import PhaseDependencies
@@ -29,6 +27,21 @@ class AutonomousArchitectOrchestrator:
         self.agent_cache = AgentCache(skill_registry)
         self.project_context = ProjectContext()
 
+    def _save_prompt_as_doc(self, memory: ProjectMemory, user_prompt: str):
+        docs_dir = Path(memory.workspace_path) / "docs"
+        docs_dir.mkdir(exist_ok=True)
+        brief_path = docs_dir / "project_brief.md"
+        if not brief_path.exists():
+            brief_content = (
+                "---\n"
+                "target_agents: [director, backend, frontend]\n"
+                "priority: high\n"
+                "---\n\n"
+                f"# Project Brief\n\n{user_prompt}\n"
+            )
+            brief_path.write_text(brief_content, encoding='utf-8')
+            memory.docs = DocumentManager(docs_dir)
+
     def orchestrate_project(
         self,
         user_prompt: str,
@@ -39,28 +52,28 @@ class AutonomousArchitectOrchestrator:
         mode: str = "full",
         turbo: bool = False
     ) -> str:
-        if not project_name:
-            project_name = f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        workspace_path = self.workspace_base / project_name
+        workspace_path = self.workspace_base
         workspace_path.mkdir(exist_ok=True)
 
         memory = ProjectMemory(str(workspace_path))
         memory.set_last_prompt(user_prompt)
         memory.set_model_used(model or os.getenv("CURRENT_BRAIN_MODEL", "unknown"))
+        self._save_prompt_as_doc(memory, user_prompt)
 
         resume_phase = None
-        if memory.is_phase_completed("generation"):
-            resume_phase = "generation"
-        if memory.is_phase_completed("audit"):
-            resume_phase = "audit"
-        if memory.is_phase_completed("dependencies"):
-            resume_phase = "dependencies"
-        if memory.is_phase_completed("tests"):
-            resume_phase = "tests"
-        if memory.is_phase_completed("deploy"):
-            resume_phase = "deploy"
+        if not is_modification:
+            if memory.is_phase_completed("generation"):
+                resume_phase = "generation"
+            if memory.is_phase_completed("audit"):
+                resume_phase = "audit"
+            if memory.is_phase_completed("dependencies"):
+                resume_phase = "dependencies"
+            if memory.is_phase_completed("tests"):
+                resume_phase = "tests"
+            if memory.is_phase_completed("deploy"):
+                resume_phase = "deploy"
 
-        print(f"📂 Proyecto: {project_name}")
+        print(f"📂 Proyecto: {project_name or workspace_path.name}")
         if resume_phase:
             print(f"⏯️  Reanudando desde fase: {resume_phase}")
         else:
@@ -120,7 +133,7 @@ class AutonomousArchitectOrchestrator:
         if not resume_phase or resume_phase in ("generation", "audit", "dependencies", "tests"):
             try:
                 print("\n🧪 FASE 4: Generación de tests")
-                deploy_phase = PhaseDeploy(workspace_path, self.agent_cache)
+                deploy_phase = PhaseDeploy(workspace_path, self.agent_cache, memory)
                 result = deploy_phase.execute(memory.get_manifest_summary(), stage="tests")
 
                 files = result.get("files", {})
@@ -140,7 +153,7 @@ class AutonomousArchitectOrchestrator:
         if not resume_phase or resume_phase in ("generation", "audit", "dependencies", "tests", "deploy"):
             try:
                 print("\n🚀 FASE 5: Despliegue y documentación")
-                deploy_phase = PhaseDeploy(workspace_path, self.agent_cache)
+                deploy_phase = PhaseDeploy(workspace_path, self.agent_cache, memory)
                 result = deploy_phase.execute(memory.get_manifest_summary(), stage="deploy")
 
                 files = result.get("files", {})
@@ -156,15 +169,38 @@ class AutonomousArchitectOrchestrator:
                 memory.add_error(error_msg)
                 return self._build_resume_message(workspace_path, "deploy", str(e))
 
-        # Resumen final
-        summary = (
+        final_summary = (
             f"\n🎉 Proyecto completado. Archivos: {len(memory.to_dict()['files_manifest'])}\n"
             f"📂 Ubicación: {workspace_path}\n"
         )
-        return summary
+        return final_summary
 
     def _save_incremental(self, workspace: Path, file_path: str, content: str):
-        full_path = workspace / file_path
+        clean = file_path.strip()
+        if clean.startswith('./'):
+            clean = clean[2:]
+        elif clean.startswith('.\\'):
+            clean = clean[2:]
+        clean = clean.lstrip("/\\")
+        if ":" in clean:
+            clean = clean.split(":", 1)[-1].lstrip("\\/")
+        full_path = (workspace / clean).resolve()
+
+        # Verificar que la ruta está dentro del workspace
+        if not str(full_path).startswith(str(workspace.resolve())):
+            raise ValueError(f"Ruta insegura detectada: {file_path} -> {full_path}")
+
+        # Backup automático antes de sobrescribir
+        if full_path.exists():
+            backup_dir = workspace / ".backup"
+            backup_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_name = f"{clean}_{timestamp}"
+            backup_path = backup_dir / backup_name
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(full_path, backup_path)
+            print(f"📦 Backup de {clean} guardado en .backup/{backup_name}")
+
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content, encoding='utf-8')
 

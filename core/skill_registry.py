@@ -9,9 +9,10 @@ from core.skill_loader import JsonSkillLoader, YamlSkillLoader, PythonSkillLoade
 
 class SkillRegistry:
     def __init__(self, skills_dir: str = "skills"):
-        self.skills_dir = Path(skills_dir)
-        self.skills: Dict[str, dict] = {}          # por nombre
-        self.skills_by_role: Dict[str, dict] = {}  # por rol
+        self.skills_dir = Path(skills_dir).resolve()
+        print(f"🔍 SkillRegistry escaneando {self.skills_dir}")
+        self.skills: Dict[str, dict] = {}
+        self.skills_by_role: Dict[str, dict] = {}
         self.loaders = [
             DirectorySkillLoader(),
             JsonSkillLoader(),
@@ -22,11 +23,14 @@ class SkillRegistry:
 
     def _load_all(self):
         if not self.skills_dir.exists():
+            print(f"⚠️ Directorio de skills no encontrado: {self.skills_dir}")
             return
         for entry in self.skills_dir.iterdir():
+            print(f"  Examinando {entry.name}...")
             skill_data = None
             for loader in self.loaders:
                 if loader.can_load(entry):
+                    print(f"    -> Probando loader {loader.__class__.__name__}")
                     skill_data = loader.load(entry)
                     if skill_data:
                         break
@@ -37,9 +41,11 @@ class SkillRegistry:
                     self.skills[name] = skill_data
                 if role:
                     self.skills_by_role[role.lower()] = skill_data
+                print(f"✅ Skill cargado: {name}")
+            else:
+                print(f"⚠️ No se pudo cargar skill de {entry}")
 
     def get_skill_by_name(self, name: str) -> Optional[dict]:
-        # Búsqueda exacta o parcial
         if name in self.skills:
             return self.skills[name]
         for skill_name, skill in self.skills.items():
